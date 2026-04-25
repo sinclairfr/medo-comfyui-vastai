@@ -2,7 +2,6 @@
 # start_wrapper.sh — ENTRYPOINT for comfyui-vastai-medo image
 # Runs custom setup then delegates to Vast.ai's entrypoint (supervisor + ComfyUI).
 # All sections are idempotent — safe on pod restarts.
-
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
