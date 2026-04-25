@@ -45,12 +45,12 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # ---------------------------------------------------------------------------
 # S3 offloader deps
 # ---------------------------------------------------------------------------
-RUN pip install --no-cache-dir flask boto3 python-dotenv
+RUN python3 -m pip install --no-cache-dir flask boto3 python-dotenv
 
 # ---------------------------------------------------------------------------
 # ComfyUI custom node deps
 # ---------------------------------------------------------------------------
-RUN pip install --no-cache-dir \
+RUN python3 -m pip install --no-cache-dir \
     gguf \
     scikit-image \
     ultralytics \
