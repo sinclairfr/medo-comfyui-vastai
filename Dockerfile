@@ -45,12 +45,12 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # ---------------------------------------------------------------------------
 # S3 offloader deps
 # ---------------------------------------------------------------------------
-RUN python3 -m pip install --no-cache-dir flask boto3 python-dotenv
+RUN uv pip install --system --no-cache-dir flask boto3 python-dotenv
 
 # ---------------------------------------------------------------------------
 # ComfyUI custom node deps
 # ---------------------------------------------------------------------------
-RUN python3 -m pip install --no-cache-dir \
+RUN uv pip install --system --no-cache-dir \
     gguf \
     scikit-image \
     ultralytics \
@@ -67,19 +67,19 @@ RUN git clone --depth=1 https://github.com/ostris/ai-toolkit.git /opt/ai-toolkit
     && cd /opt/ai-toolkit \
     && git submodule update --init --recursive
 
-# Isolated Python venv for ai-toolkit
-RUN python3 -m venv /opt/ai-toolkit-venv
+# Isolated venv for ai-toolkit (uv venv is faster and works in this image)
+RUN uv venv /opt/ai-toolkit-venv
 
 # torch 2.7.0+cu128 — matches the CUDA version in the vastai/comfy base
-RUN /opt/ai-toolkit-venv/bin/pip install --no-cache-dir \
+RUN uv pip install --python /opt/ai-toolkit-venv/bin/python --no-cache-dir \
     torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 \
     --index-url https://download.pytorch.org/whl/cu128
 
 # ai-toolkit Python requirements + gradio
-RUN /opt/ai-toolkit-venv/bin/pip install --no-cache-dir \
+RUN uv pip install --python /opt/ai-toolkit-venv/bin/python --no-cache-dir \
     -r /opt/ai-toolkit/requirements.txt
 
-RUN /opt/ai-toolkit-venv/bin/pip install --no-cache-dir --upgrade \
+RUN uv pip install --python /opt/ai-toolkit-venv/bin/python --no-cache-dir \
     accelerate transformers diffusers huggingface_hub gradio
 
 # Build the Next.js UI
