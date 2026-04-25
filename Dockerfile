@@ -44,8 +44,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 # ---------------------------------------------------------------------------
 # S3 offloader deps
+# blinker is pre-installed by Debian in this base; remove it so pip can manage it
 # ---------------------------------------------------------------------------
-RUN uv pip install --system --no-cache-dir flask boto3 python-dotenv
+RUN apt-get remove -y --purge python3-blinker 2>/dev/null || true \
+    && uv pip install --system --no-cache-dir flask boto3 python-dotenv
 
 # ---------------------------------------------------------------------------
 # ComfyUI custom node deps
