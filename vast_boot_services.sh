@@ -9,7 +9,7 @@ S3_OFFLOADER_DIR="/workspace/comfyui_S3_offloader"
 S3_OFFLOADER_REPO="https://github.com/sinclairfr/comfyui_S3_offloader"
 
 ATK_CODE="/opt/ai-toolkit"
-ATK_VENV="/opt/ai-toolkit-venv"
+ATK_VENV="/venv/main"
 ATK_WORKSPACE="/workspace/ai-toolkit"
 ATK_DB="${ATK_WORKSPACE}/aitk_db.db"
 RUN_AI_TOOLKIT="${RUN_AI_TOOLKIT:-false}"

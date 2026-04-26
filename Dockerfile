@@ -62,24 +62,23 @@ RUN git clone --depth=1 https://github.com/ostris/ai-toolkit.git /opt/ai-toolkit
     && cd /opt/ai-toolkit \
     && git submodule update --init --recursive
 
-# Isolated venv for ai-toolkit
-RUN uv venv /opt/ai-toolkit-venv
-
-RUN uv pip install --python /opt/ai-toolkit-venv/bin/python --no-cache-dir \
-    torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 \
-    --index-url https://download.pytorch.org/whl/cu128
-
-RUN uv pip install --python /opt/ai-toolkit-venv/bin/python --no-cache-dir \
+# Install ai-toolkit Python deps into the base image venv (/venv/main).
+# /venv/main already contains a CUDA-compatible PyTorch used by ComfyUI, so
+# we avoid downloading a duplicate torch+torchvision+torchaudio stack (~10 GB).
+# pip skips packages whose version constraints are already satisfied.
+RUN /venv/main/bin/python3 -m pip install --no-cache-dir \
     -r /opt/ai-toolkit/requirements.txt
 
-RUN uv pip install --python /opt/ai-toolkit-venv/bin/python --no-cache-dir \
+RUN /venv/main/bin/python3 -m pip install --no-cache-dir \
     accelerate transformers diffusers huggingface_hub gradio
 
-# Build the Next.js UI
+# Build the Next.js UI; clean the npm cache afterwards (node_modules kept for
+# `next start` and `node dist/cron/worker.js` at runtime).
 RUN cd /opt/ai-toolkit/ui \
     && npm install \
     && npx prisma generate \
-    && npm run build
+    && npm run build \
+    && npm cache clean --force
 
 # ---------------------------------------------------------------------------
 # Exposed ports
