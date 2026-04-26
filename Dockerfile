@@ -34,18 +34,14 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
-# S3 offloader deps
-# Base image has an unmanaged blinker install (no RECORD), so force-reinstall
-# avoids uninstall failures during dependency resolution.
+# S3 offloader deps + ComfyUI custom node deps
+# Installed into /venv/main — the venv the base image activates for ComfyUI.
+# Never touch the system Python: Vast.ai's portal setup scripts (portal.yaml
+# generator, caddy config, instance_portal) use it and --break-system-packages
+# corrupts them, causing the "no web interface" symptom.
 # ---------------------------------------------------------------------------
-RUN apt-get remove -y --purge python3-blinker 2>/dev/null || true \
-    && python3 -m pip install --no-cache-dir --break-system-packages \
-       --ignore-installed blinker flask boto3 python-dotenv
-
-# ---------------------------------------------------------------------------
-# ComfyUI custom node deps
-# ---------------------------------------------------------------------------
-RUN python3 -m pip install --no-cache-dir --break-system-packages \
+RUN /venv/main/bin/python3 -m pip install --no-cache-dir \
+    flask boto3 python-dotenv \
     gguf \
     scikit-image \
     ultralytics \
