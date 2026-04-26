@@ -32,7 +32,8 @@ S3_OFFLOADER_REPO="https://github.com/sinclairfr/comfyui_S3_offloader"
 
 log "Installing S3 offloader deps..."
 apt-get remove -y --purge python3-blinker 2>/dev/null || true
-uv pip install --system --no-cache-dir flask boto3 python-dotenv
+python3 -m pip install --no-cache-dir --break-system-packages \
+    --ignore-installed blinker flask boto3 python-dotenv
 
 if [[ ! -d "${S3_OFFLOADER_DIR}" ]]; then
     log "Cloning comfyui_S3_offloader..."
@@ -43,7 +44,7 @@ fi
 # ComfyUI custom node deps
 # ---------------------------------------------------------------------------
 log "Installing ComfyUI custom node deps..."
-uv pip install --system --no-cache-dir \
+python3 -m pip install --no-cache-dir --break-system-packages \
     gguf scikit-image ultralytics dill piexif \
     segment-anything albumentations imageio-ffmpeg
 

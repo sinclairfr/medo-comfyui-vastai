@@ -1,6 +1,6 @@
 # Vast.ai ComfyUI image — extends vastai/comfy which has ComfyUI + supervisor pre-installed.
 # Delegates startup to /opt/instance-tools/bin/entrypoint.sh (Vast.ai equivalent of RunPod's /start.sh).
-FROM --platform=linux/amd64 vastai/comfy:v0.19.3-cuda-12.9-py312
+FROM vastai/comfy:v0.19.3-cuda-12.9-py312
 
 # ---------------------------------------------------------------------------
 # System tools — the stuff you always need when SSHed into a pod
@@ -44,15 +44,17 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 # ---------------------------------------------------------------------------
 # S3 offloader deps
-# blinker is pre-installed by Debian in this base; remove it so pip can manage it
+# Base image has an unmanaged blinker install (no RECORD), so force-reinstall
+# avoids uninstall failures during dependency resolution.
 # ---------------------------------------------------------------------------
 RUN apt-get remove -y --purge python3-blinker 2>/dev/null || true \
-    && uv pip install --system --no-cache-dir flask boto3 python-dotenv
+    && python3 -m pip install --no-cache-dir --break-system-packages \
+       --ignore-installed blinker flask boto3 python-dotenv
 
 # ---------------------------------------------------------------------------
 # ComfyUI custom node deps
 # ---------------------------------------------------------------------------
-RUN uv pip install --system --no-cache-dir \
+RUN python3 -m pip install --no-cache-dir --break-system-packages \
     gguf \
     scikit-image \
     ultralytics \
