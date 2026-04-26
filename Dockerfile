@@ -82,6 +82,13 @@ RUN cd /opt/ai-toolkit/ui \
     && npm run build
 
 # ---------------------------------------------------------------------------
+# Exposed ports
+#   8188 — ComfyUI (started by base image entrypoint)
+#   8675 — ai-toolkit UI (started by boot hook when RUN_AI_TOOLKIT=true)
+# ---------------------------------------------------------------------------
+EXPOSE 8188 8675
+
+# ---------------------------------------------------------------------------
 # Boot hook — runs via Vast.ai's /etc/vast_boot.d/ mechanism.
 # Keeps Vast portal/splashscreen + default service startup intact.
 # ---------------------------------------------------------------------------
