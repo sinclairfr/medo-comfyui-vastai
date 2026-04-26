@@ -35,15 +35,17 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 # ---------------------------------------------------------------------------
 # S3 offloader deps
-# blinker is pre-installed by Debian; remove it so uv can manage it
+# Base image has an unmanaged blinker install (no RECORD), so force-reinstall
+# avoids uninstall failures during dependency resolution.
 # ---------------------------------------------------------------------------
 RUN apt-get remove -y --purge python3-blinker 2>/dev/null || true \
-    && uv pip install --system --no-cache-dir flask boto3 python-dotenv
+    && python3 -m pip install --no-cache-dir --break-system-packages \
+       --ignore-installed blinker flask boto3 python-dotenv
 
 # ---------------------------------------------------------------------------
 # ComfyUI custom node deps
 # ---------------------------------------------------------------------------
-RUN uv pip install --system --no-cache-dir \
+RUN python3 -m pip install --no-cache-dir --break-system-packages \
     gguf \
     scikit-image \
     ultralytics \
@@ -80,8 +82,8 @@ RUN cd /opt/ai-toolkit/ui \
     && npm run build
 
 # ---------------------------------------------------------------------------
-# Boot script — runs via Vast.ai's /etc/vast_boot.d/ mechanism.
-# Keeps the Vast.ai portal/splashscreen intact.
+# Boot hook — runs via Vast.ai's /etc/vast_boot.d/ mechanism.
+# Keeps Vast portal/splashscreen + default service startup intact.
 # ---------------------------------------------------------------------------
-COPY start_wrapper.sh /etc/vast_boot.d/50-medo.sh
-RUN chmod +x /etc/vast_boot.d/50-medo.sh
+COPY vast_boot_services.sh /etc/vast_boot.d/70-medo-services.sh
+RUN chmod +x /etc/vast_boot.d/70-medo-services.sh
