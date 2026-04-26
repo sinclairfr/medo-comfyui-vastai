@@ -27,9 +27,17 @@ fi
 # ---------------------------------------------------------------------------
 # S3 offloader deps
 # ---------------------------------------------------------------------------
+S3_OFFLOADER_DIR="/workspace/comfyui_S3_offloader"
+S3_OFFLOADER_REPO="https://github.com/sinclairfr/comfyui_S3_offloader"
+
 log "Installing S3 offloader deps..."
 apt-get remove -y --purge python3-blinker 2>/dev/null || true
 uv pip install --system --no-cache-dir flask boto3 python-dotenv
+
+if [[ ! -d "${S3_OFFLOADER_DIR}" ]]; then
+    log "Cloning comfyui_S3_offloader..."
+    git clone "${S3_OFFLOADER_REPO}" "${S3_OFFLOADER_DIR}"
+fi
 
 # ---------------------------------------------------------------------------
 # ComfyUI custom node deps

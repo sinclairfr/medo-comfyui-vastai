@@ -1,6 +1,6 @@
 # Vast.ai ComfyUI image — extends vastai/comfy which has ComfyUI + supervisor pre-installed.
 # Delegates startup to /opt/instance-tools/bin/entrypoint.sh (Vast.ai equivalent of RunPod's /start.sh).
-FROM vastai/comfy:v0.19.3-cuda-12.9-py312
+FROM --platform=linux/amd64 vastai/comfy:v0.19.3-cuda-12.9-py312
 
 # ---------------------------------------------------------------------------
 # System tools — the stuff you always need when SSHed into a pod
