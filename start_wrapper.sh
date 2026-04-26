@@ -17,6 +17,38 @@ RUN_AI_TOOLKIT="${RUN_AI_TOOLKIT:-false}"
 log() { echo "[wrapper] $*"; }
 
 # ---------------------------------------------------------------------------
+# Vast.ai extra logs compatibility (best effort)
+# Some environments attempt to read files from:
+#   /var/lib/vastai_kaalia/data/instance_extra_logs/C.<id>
+# If missing, startup may emit noisy "cat: ... No such file or directory" lines.
+# ---------------------------------------------------------------------------
+init_vast_extra_logs() {
+  local base="/var/lib/vastai_kaalia/data/instance_extra_logs"
+
+  mkdir -p "${base}" 2>/dev/null || {
+    log "Vast extra logs: cannot create ${base} (non-fatal)"
+    return 0
+  }
+
+  chmod 777 "${base}" 2>/dev/null || true
+
+  for raw_id in \
+    "${CONTAINER_ID:-}" \
+    "${VAST_CONTAINER_ID:-}" \
+    "${VAST_INSTANCE_ID:-}" \
+    "${INSTANCE_ID:-}" \
+    "${HOSTNAME:-}"; do
+    [[ -z "${raw_id}" ]] && continue
+    id="$(echo "${raw_id}" | tr -cd '[:alnum:]_.-')"
+    [[ -z "${id}" ]] && continue
+    touch "${base}/C.${id}" "${base}/O.${id}" 2>/dev/null || true
+  done
+
+  # Fallback placeholders to keep path non-empty even if no known id is available
+  touch "${base}/C.placeholder" "${base}/O.placeholder" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
 # SSH private key — for git access inside the pod (PUBLIC_KEY is handled by Vast.ai)
 # ---------------------------------------------------------------------------
 setup_ssh() {
@@ -113,6 +145,7 @@ start_ai_toolkit() {
 # Main
 # ---------------------------------------------------------------------------
 
+init_vast_extra_logs
 setup_ssh
 start_s3_offloader
 
