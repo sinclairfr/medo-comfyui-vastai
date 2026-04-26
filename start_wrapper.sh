@@ -1,10 +1,8 @@
 #!/bin/bash
-# start_wrapper.sh — ENTRYPOINT for comfyui-vastai-medo image
-# Runs custom setup then delegates to Vast.ai's entrypoint (supervisor + ComfyUI).
-# All sections are idempotent — safe on pod restarts.
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
+# /etc/vast_boot.d/50-medo.sh — runs as part of Vast.ai's boot sequence.
+# Starts S3 offloader and optionally ai-toolkit alongside the normal Vast.ai stack.
+# Do NOT exec the entrypoint here — Vast.ai's framework handles that.
+
 S3_OFFLOADER_DIR="/workspace/comfyui_S3_offloader"
 S3_OFFLOADER_REPO="https://github.com/sinclairfr/comfyui_S3_offloader"
 
@@ -14,42 +12,10 @@ ATK_WORKSPACE="/workspace/ai-toolkit"
 ATK_DB="${ATK_WORKSPACE}/aitk_db.db"
 RUN_AI_TOOLKIT="${RUN_AI_TOOLKIT:-false}"
 
-log() { echo "[wrapper] $*"; }
+log() { echo "[medo] $*"; }
 
 # ---------------------------------------------------------------------------
-# Vast.ai extra logs compatibility (best effort)
-# Some environments attempt to read files from:
-#   /var/lib/vastai_kaalia/data/instance_extra_logs/C.<id>
-# If missing, startup may emit noisy "cat: ... No such file or directory" lines.
-# ---------------------------------------------------------------------------
-init_vast_extra_logs() {
-  local base="/var/lib/vastai_kaalia/data/instance_extra_logs"
-
-  mkdir -p "${base}" 2>/dev/null || {
-    log "Vast extra logs: cannot create ${base} (non-fatal)"
-    return 0
-  }
-
-  chmod 777 "${base}" 2>/dev/null || true
-
-  for raw_id in \
-    "${CONTAINER_ID:-}" \
-    "${VAST_CONTAINER_ID:-}" \
-    "${VAST_INSTANCE_ID:-}" \
-    "${INSTANCE_ID:-}" \
-    "${HOSTNAME:-}"; do
-    [[ -z "${raw_id}" ]] && continue
-    id="$(echo "${raw_id}" | tr -cd '[:alnum:]_.-')"
-    [[ -z "${id}" ]] && continue
-    touch "${base}/C.${id}" "${base}/O.${id}" 2>/dev/null || true
-  done
-
-  # Fallback placeholders to keep path non-empty even if no known id is available
-  touch "${base}/C.placeholder" "${base}/O.placeholder" 2>/dev/null || true
-}
-
-# ---------------------------------------------------------------------------
-# SSH private key — for git access inside the pod (PUBLIC_KEY is handled by Vast.ai)
+# SSH private key — for git access inside the pod (PUBLIC_KEY handled by Vast.ai)
 # ---------------------------------------------------------------------------
 setup_ssh() {
   if [[ -n "${SSH_PRIVATE_KEY:-}" ]]; then
@@ -95,13 +61,8 @@ start_s3_offloader() {
 # ai-toolkit UI (Next.js, port 8675)
 # ---------------------------------------------------------------------------
 start_ai_toolkit() {
-  if [[ ! -d "${ATK_CODE}" ]]; then
-    log "ai-toolkit: /opt/ai-toolkit missing — image build issue"
-    return
-  fi
-
   if [[ ! -d "${ATK_CODE}/ui/.next" ]]; then
-    log "ai-toolkit: ui/.next not found — Next.js build may have failed"
+    log "ai-toolkit: ui/.next not found — skipping"
     return
   fi
 
@@ -119,7 +80,6 @@ start_ai_toolkit() {
   export DATABASE_URL="file:${ATK_DB}"
   export AI_TOOLKIT_PYTHON="${ATK_VENV}/bin/python"
 
-  # Init DB on first run
   if [[ ! -f "${ATK_DB}" ]]; then
     log "ai-toolkit: initializing Prisma DB..."
     cd "${ATK_CODE}/ui"
@@ -128,31 +88,22 @@ start_ai_toolkit() {
     cd - >/dev/null
   fi
 
-  log "ai-toolkit: starting cron worker..."
   cd "${ATK_CODE}/ui"
-  nohup node dist/cron/worker.js \
-    >> "${ATK_WORKSPACE}/worker.log" 2>&1 &
+  nohup node dist/cron/worker.js >> "${ATK_WORKSPACE}/worker.log" 2>&1 &
   log "ai-toolkit: worker started (PID $!)"
 
-  log "ai-toolkit: starting Next.js UI on port 8675..."
-  nohup node_modules/.bin/next start --port 8675 \
-    >> "${ATK_WORKSPACE}/server.log" 2>&1 &
-  log "ai-toolkit: UI started (PID $!), logs → ${ATK_WORKSPACE}/server.log"
+  nohup node_modules/.bin/next start --port 8675 >> "${ATK_WORKSPACE}/server.log" 2>&1 &
+  log "ai-toolkit: UI started on port 8675 (PID $!)"
   cd - >/dev/null
 }
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-
-init_vast_extra_logs
 setup_ssh
 start_s3_offloader
 
 case "${RUN_AI_TOOLKIT,,}" in
   true|1|yes) start_ai_toolkit ;;
-  *) log "ai-toolkit: disabled (RUN_AI_TOOLKIT=${RUN_AI_TOOLKIT})" ;;
+  *) log "ai-toolkit: disabled (set RUN_AI_TOOLKIT=true to enable)" ;;
 esac
-
-log "Handing off to Vast.ai entrypoint..."
-exec /opt/instance-tools/bin/entrypoint.sh
