@@ -73,6 +73,46 @@ start_s3_offloader() {
   log "S3 offloader: started"
 }
 
+# Vast.ai portal.yaml / Caddy failures leave ComfyUI never started.
+# This watchdog runs in the background: after 60 s it checks whether port 8188
+# is listening and, if not, starts ComfyUI directly — bypassing the portal.yaml
+# mechanism entirely.  It is a no-op when the supervisor already started it.
+start_comfyui_watchdog() {
+  (
+    sleep 60
+
+    if ss -tlnp 2>/dev/null | grep -q ':8188 '; then
+      log "ComfyUI watchdog: already listening on :8188 — OK"
+      exit 0
+    fi
+
+    # Locate ComfyUI installation (base image puts it in /opt/ComfyUI)
+    local comfyui_dir=""
+    for d in /opt/ComfyUI /workspace/ComfyUI; do
+      [[ -f "${d}/main.py" ]] && { comfyui_dir="${d}"; break; }
+    done
+    if [[ -z "${comfyui_dir}" ]]; then
+      log "ComfyUI watchdog: main.py not found in known paths — giving up"
+      exit 0
+    fi
+
+    # Use the venv that Vast.ai activates at startup, fall back to system python3
+    local python="/venv/main/bin/python3"
+    [[ ! -x "${python}" ]] && python="$(command -v python3 2>/dev/null || echo "")"
+    if [[ -z "${python}" ]]; then
+      log "ComfyUI watchdog: python3 not found — giving up"
+      exit 0
+    fi
+
+    log "ComfyUI watchdog: portal.yaml mechanism failed; starting ComfyUI directly from ${comfyui_dir}"
+    mkdir -p /workspace/logs
+    cd "${comfyui_dir}"
+    nohup "${python}" main.py --listen 0.0.0.0 --port 8188 \
+      >> /workspace/logs/comfyui.log 2>&1 &
+    log "ComfyUI watchdog: started (PID $!) — logs at /workspace/logs/comfyui.log"
+  ) &
+}
+
 start_ai_toolkit() {
   case "${RUN_AI_TOOLKIT,,}" in
     true|1|yes) ;;
@@ -108,6 +148,7 @@ start_ai_toolkit() {
 
 init_vast_extra_logs || true
 setup_ssh || true
+start_comfyui_watchdog || true
 start_s3_offloader || true
 start_ai_toolkit || true
 
