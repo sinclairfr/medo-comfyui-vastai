@@ -34,18 +34,14 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
-# S3 offloader deps
-# Base image has an unmanaged blinker install (no RECORD), so force-reinstall
-# avoids uninstall failures during dependency resolution.
+# S3 offloader deps + ComfyUI custom node deps
+# Installed into /venv/main — the venv the base image activates for ComfyUI.
+# Never touch the system Python: Vast.ai's portal setup scripts (portal.yaml
+# generator, caddy config, instance_portal) use it and --break-system-packages
+# corrupts them, causing the "no web interface" symptom.
 # ---------------------------------------------------------------------------
-RUN apt-get remove -y --purge python3-blinker 2>/dev/null || true \
-    && python3 -m pip install --no-cache-dir --break-system-packages \
-       --ignore-installed blinker flask boto3 python-dotenv
-
-# ---------------------------------------------------------------------------
-# ComfyUI custom node deps
-# ---------------------------------------------------------------------------
-RUN python3 -m pip install --no-cache-dir --break-system-packages \
+RUN /venv/main/bin/python3 -m pip install --no-cache-dir \
+    flask boto3 python-dotenv \
     gguf \
     scikit-image \
     ultralytics \
@@ -62,24 +58,23 @@ RUN git clone --depth=1 https://github.com/ostris/ai-toolkit.git /opt/ai-toolkit
     && cd /opt/ai-toolkit \
     && git submodule update --init --recursive
 
-# Isolated venv for ai-toolkit
-RUN uv venv /opt/ai-toolkit-venv
-
-RUN uv pip install --python /opt/ai-toolkit-venv/bin/python --no-cache-dir \
-    torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 \
-    --index-url https://download.pytorch.org/whl/cu128
-
-RUN uv pip install --python /opt/ai-toolkit-venv/bin/python --no-cache-dir \
+# Install ai-toolkit Python deps into the base image venv (/venv/main).
+# /venv/main already contains a CUDA-compatible PyTorch used by ComfyUI, so
+# we avoid downloading a duplicate torch+torchvision+torchaudio stack (~10 GB).
+# pip skips packages whose version constraints are already satisfied.
+RUN /venv/main/bin/python3 -m pip install --no-cache-dir \
     -r /opt/ai-toolkit/requirements.txt
 
-RUN uv pip install --python /opt/ai-toolkit-venv/bin/python --no-cache-dir \
+RUN /venv/main/bin/python3 -m pip install --no-cache-dir \
     accelerate transformers diffusers huggingface_hub gradio
 
-# Build the Next.js UI
+# Build the Next.js UI; clean the npm cache afterwards (node_modules kept for
+# `next start` and `node dist/cron/worker.js` at runtime).
 RUN cd /opt/ai-toolkit/ui \
     && npm install \
     && npx prisma generate \
-    && npm run build
+    && npm run build \
+    && npm cache clean --force
 
 # ---------------------------------------------------------------------------
 # Exposed ports

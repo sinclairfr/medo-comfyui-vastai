@@ -9,7 +9,7 @@ S3_OFFLOADER_DIR="/workspace/comfyui_S3_offloader"
 S3_OFFLOADER_REPO="https://github.com/sinclairfr/comfyui_S3_offloader"
 
 ATK_CODE="/opt/ai-toolkit"
-ATK_VENV="/opt/ai-toolkit-venv"
+ATK_VENV="/venv/main"
 ATK_WORKSPACE="/workspace/ai-toolkit"
 ATK_DB="${ATK_WORKSPACE}/aitk_db.db"
 RUN_AI_TOOLKIT="${RUN_AI_TOOLKIT:-false}"
@@ -56,21 +56,27 @@ EOF
 }
 
 start_s3_offloader() {
-  if [[ ! -d "${S3_OFFLOADER_DIR}" ]]; then
-    log "S3 offloader: cloning"
-    git clone "${S3_OFFLOADER_REPO}" "${S3_OFFLOADER_DIR}" >/dev/null 2>&1 || {
-      log "S3 offloader: clone failed (non-fatal)"
-      return 0
+  # Run entirely in background so a slow git clone never delays the boot
+  # sequence (which would push back portal.yaml generation and all Vast.ai
+  # services that wait for it).
+  (
+    if [[ ! -d "${S3_OFFLOADER_DIR}" ]]; then
+      log "S3 offloader: cloning"
+      git clone "${S3_OFFLOADER_REPO}" "${S3_OFFLOADER_DIR}" >/dev/null 2>&1 || {
+        log "S3 offloader: clone failed (non-fatal)"
+        exit 0
+      }
+    fi
+
+    [[ ! -f "${S3_OFFLOADER_DIR}/app.py" ]] && {
+      log "S3 offloader: app.py missing (skip)"
+      exit 0
     }
-  fi
 
-  [[ ! -f "${S3_OFFLOADER_DIR}/app.py" ]] && {
-    log "S3 offloader: app.py missing (skip)"
-    return 0
-  }
-
-  (cd "${S3_OFFLOADER_DIR}" && nohup python3 app.py >> /workspace/s3_offloader.log 2>&1 &) || true
-  log "S3 offloader: started"
+    cd "${S3_OFFLOADER_DIR}"
+    nohup /venv/main/bin/python3 app.py >> /workspace/s3_offloader.log 2>&1 &
+    log "S3 offloader: started (PID $!)"
+  ) &
 }
 
 # Vast.ai portal.yaml / Caddy failures leave ComfyUI never started.
