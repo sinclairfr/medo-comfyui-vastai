@@ -1,45 +1,72 @@
 # medo-comfyui-vastai
 
-Script de démarrage personnel pour ComfyUI sur Vast.ai.
+Production-ready startup layer for `vastai/comfy` instances on Vast.ai.
 
-## Image de base
+## Recommended image
 
-`ghcr.io/ai-dock/comfyui:v2-cuda-12.1.1-base-22.04`
+Use this repo's Dockerfile base:
 
-Fournit out-of-the-box : file browser, terminal web, splashscreen, ComfyUI, Jupyter, Syncthing.
+- `vastai/comfy:v0.19.3-cuda-12.9-py312`
 
-## Utilisation
+This setup keeps the native AI-Dock/Vast portal untouched and adds Medo services through Supervisor.
 
-Dans le template Vast.ai :
+## Vast.ai On-start Script
 
-**Image** → `ghcr.io/ai-dock/comfyui:v2-cuda-12.1.1-base-22.04`
+In your Vast template **On-start Script** field:
 
-**On-start Script** :
 ```bash
 entrypoint.sh
 bash <(curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/on_start.sh)
 ```
 
-## Ce que `on_start.sh` ajoute
+`entrypoint.sh` is required in SSH/Jupyter launch modes so the native AI-Dock stack (portal + default services) starts first.
 
-- Deps Python custom pour nodes ComfyUI (`ultralytics`, `gguf`, `segment-anything`…)
-- `comfyui_S3_offloader` — démarré automatiquement à chaque boot
-- `ai-toolkit` + UI Next.js sur `:8675` — optionnel, activer avec `RUN_AI_TOOLKIT=true`
+## Environment variables
 
-Tout est caché dans `/workspace` (volume persistant) — la première instance est lente, les suivantes sont rapides.
+| Variable | Default | Description |
+|---|---:|---|
+| `RUN_AI_TOOLKIT` | `false` | Start ai-toolkit server/worker when `true`. |
+| `S3_OFFLOADER_PORT` | `5055` | Internal port for `comfyui_S3_offloader`. |
+| `FILEBROWSER_PORT` | `8081` | Internal port for FileBrowser. |
+| `AI_TOOLKIT_PORT` | `8675` | Internal port for ai-toolkit web service. |
+| `WORKSPACE` | `/workspace` | Persistent workspace root. |
 
-## Variables d'environnement
+## Ports to expose in Vast
 
-| Variable | Défaut | Effet |
-|----------|--------|-------|
-| `RUN_AI_TOOLKIT` | `false` | `true` pour démarrer ai-toolkit sur :8675 |
-| `HF_TOKEN` | — | Token HuggingFace (modèles privés) |
+Expose only the ports you need from the container:
 
-## Modifier le script
+- `8188` (ComfyUI)
+- `5055` (S3 offloader)
+- `8081` (FileBrowser)
+- `8675` (ai-toolkit, optional)
+- `8888` / `8080` (Jupyter, depending on base image behavior)
+
+> Do not map or replace the native AI-Dock portal on port `1111`.
+
+## What `on_start.sh` does
+
+- Creates persistent folders under `/workspace`:
+  - `/workspace/logs`
+  - `/workspace/services`
+- Clones/updates `comfyui_S3_offloader` into `/workspace/comfyui_S3_offloader`.
+- Clones/updates `ai-toolkit` only when `RUN_AI_TOOLKIT=true`.
+- Initializes FileBrowser DB under `/workspace/services/filebrowser.db` (idempotent).
+- Renders Supervisor program configs and starts/updates services with `supervisorctl`.
+- Prints internal service summary.
+- If `/run/http_ports` exists, appends Medo services so they can appear in the native portal links list.
+
+## Troubleshooting
 
 ```bash
-git clone https://github.com/sinclairfr/medo-comfyui-vastai
-# éditer on_start.sh
-git push
-# la prochaine instance démarre avec la nouvelle version
+supervisorctl status
+tail -f /workspace/logs/*.log
+bash scripts/discover_ai_dock_portal.sh
 ```
+
+## Safety guarantees
+
+- `set -Eeuo pipefail`
+- lock file via `flock` for concurrent-run protection
+- idempotent git sync and config rendering
+- optional ai-toolkit failures do not block core startup
+- never modifies `/start.sh`, `entrypoint.sh`, or behavior on port `1111`
