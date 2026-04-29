@@ -14,32 +14,29 @@ This setup keeps the native AI-Dock/Vast portal untouched and adds Medo services
 
 ### 1) Startup command (important)
 
-Use a command that works even when Vast runs it with `/bin/sh`:
+Use a **Bash** wrapper so process substitution `<(...)` works reliably:
 
 ```bash
-entrypoint.sh && curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/on_start.sh | bash
+bash -lc 'entrypoint.sh && bash <(curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/on_start.sh)'
 ```
 
-This avoids process substitution `<(...)`, which is Bash-only and can fail in some templates.
+Why: in some Vast.ai templates the startup command is executed with `/bin/sh`, and `/bin/sh` does **not** support process substitution.
 
-If `entrypoint.sh` sometimes exits non-zero but you still want Medo setup to run:
+If you still see startup timing issues, use:
 
 ```bash
-entrypoint.sh; curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/on_start.sh | bash
+bash -lc 'entrypoint.sh; bash <(curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/on_start.sh)'
 ```
+
+(`;` runs Medo setup even if `entrypoint.sh` exits non-zero.)
 
 ### 2) On-start script field
 
 If you prefer using Vast's **On-start Script** field directly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/on_start.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/on_start.sh)
 ```
-
-
-## Interpreting startup logs
-
-If you see `Error unmarshaling QuickTunnel response ... 429 Too Many Requests`, this is from the default Cloudflare quick tunnel rate limit and **not** from `on_start.sh`. Core services can still be healthy locally (portal, ComfyUI, Caddy, workers). Use direct Vast exposed ports when tunnel creation is rate-limited.
 
 ## Environment variables
 
