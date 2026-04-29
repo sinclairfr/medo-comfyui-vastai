@@ -13,7 +13,6 @@ LOG_DIR="${WORKSPACE}/logs"
 SERVICES_DIR="${WORKSPACE}/services"
 SUPERVISOR_DST_DIR="/etc/supervisor/conf.d"
 SUPERVISOR_TPL_DIR="/opt/medo/supervisor-templates"
-FALLBACK_TPL_DIR="/tmp/medo-supervisor-templates"
 
 S3_OFFLOADER_PORT="${S3_OFFLOADER_PORT:-5055}"
 FILEBROWSER_PORT="${FILEBROWSER_PORT:-8081}"
@@ -24,50 +23,10 @@ S3_DIR="${WORKSPACE}/comfyui_S3_offloader"
 S3_REPO="https://github.com/sinclairfr/comfyui_S3_offloader"
 AI_TOOLKIT_DIR="${WORKSPACE}/ai-toolkit"
 AI_TOOLKIT_REPO="https://github.com/ostris/ai-toolkit"
-MEDO_REPO_DIR="${WORKSPACE}/medo-comfyui-vastai"
-MEDO_REPO_URL="https://github.com/sinclairfr/medo-comfyui-vastai"
 
 mkdir -p "${WORKSPACE}" "${LOG_DIR}" "${SERVICES_DIR}" "${SERVICES_DIR}/filebrowser"
 
 log() { echo "[medo] $*" | tee -a "${LOG_DIR}/on_start.log"; }
-
-register_portal_service() {
-  local name="$1" target_url="$2"
-  local portal_yaml="/etc/portal.yaml"
-  [[ -f "${portal_yaml}" ]] || return 0
-  python3 - "$portal_yaml" "$name" "$target_url" >>"${LOG_DIR}/on_start.log" 2>&1 <<'PY' || return 1
-import sys
-from pathlib import Path
-try:
-    import yaml
-except Exception:
-    raise SystemExit(1)
-
-portal_path = Path(sys.argv[1])
-name = sys.argv[2]
-target = sys.argv[3]
-data = {}
-if portal_path.exists():
-    raw = portal_path.read_text() or ""
-    data = yaml.safe_load(raw) or {}
-
-services = data.get("services")
-if not isinstance(services, list):
-    services = []
-
-exists = False
-for item in services:
-    if isinstance(item, dict) and item.get("name") == name:
-        item["url"] = target
-        exists = True
-        break
-if not exists:
-    services.append({"name": name, "url": target})
-data["services"] = services
-portal_path.write_text(yaml.safe_dump(data, sort_keys=False))
-print(f"portal.yaml updated: {name} -> {target}")
-PY
-}
 
 register_http_port() {
   local port="$1" name="$2"
@@ -104,69 +63,7 @@ render_supervisor_program() {
     "${src}" > "${dst}"
 }
 
-ensure_supervisor_templates() {
-  if [[ -f "${SUPERVISOR_TPL_DIR}/medo-s3-offloader.conf" ]]; then
-    return 0
-  fi
-  log "Supervisor templates not found in image; using fallback templates from script"
-  mkdir -p "${FALLBACK_TPL_DIR}"
-  SUPERVISOR_TPL_DIR="${FALLBACK_TPL_DIR}"
-
-  cat > "${SUPERVISOR_TPL_DIR}/medo-s3-offloader.conf" <<'EOF'
-[program:medo-s3-offloader]
-directory=__S3_DIR__
-command=python3 app.py --port __S3_OFFLOADER_PORT__
-autostart=true
-autorestart=true
-startsecs=3
-stdout_logfile=/workspace/logs/medo-s3-offloader.log
-stderr_logfile=/workspace/logs/medo-s3-offloader.err.log
-user=root
-environment=PYTHONUNBUFFERED="1",WORKSPACE="__WORKSPACE__"
-EOF
-
-  cat > "${SUPERVISOR_TPL_DIR}/medo-filebrowser.conf" <<'EOF'
-[program:medo-filebrowser]
-command=filebrowser -r __WORKSPACE__ -d __WORKSPACE__/services/filebrowser.db -p __FILEBROWSER_PORT__
-autostart=true
-autorestart=true
-startsecs=3
-stdout_logfile=/workspace/logs/medo-filebrowser.log
-stderr_logfile=/workspace/logs/medo-filebrowser.err.log
-user=root
-environment=FB_NOAUTH="false",WORKSPACE="__WORKSPACE__"
-EOF
-
-  cat > "${SUPERVISOR_TPL_DIR}/medo-ai-toolkit-server.conf" <<'EOF'
-[program:medo-ai-toolkit-server]
-directory=__AI_TOOLKIT_DIR__
-command=/bin/bash -lc 'npm install && npm run start -- --port __AI_TOOLKIT_PORT__'
-autostart=__AI_TOOLKIT_AUTOSTART__
-autorestart=true
-startsecs=5
-stdout_logfile=/workspace/logs/medo-ai-toolkit-server.log
-stderr_logfile=/workspace/logs/medo-ai-toolkit-server.err.log
-user=root
-environment=PORT="__AI_TOOLKIT_PORT__",WORKSPACE="__WORKSPACE__"
-EOF
-
-  cat > "${SUPERVISOR_TPL_DIR}/medo-ai-toolkit-worker.conf" <<'EOF'
-[program:medo-ai-toolkit-worker]
-directory=__AI_TOOLKIT_DIR__
-command=/bin/bash -lc 'python3 worker.py'
-autostart=__AI_TOOLKIT_AUTOSTART__
-autorestart=true
-startsecs=5
-stdout_logfile=/workspace/logs/medo-ai-toolkit-worker.log
-stderr_logfile=/workspace/logs/medo-ai-toolkit-worker.err.log
-user=root
-environment=WORKSPACE="__WORKSPACE__"
-EOF
-}
-
 log "Preparing repositories"
-ensure_supervisor_templates
-git_sync_repo "${MEDO_REPO_URL}" "${MEDO_REPO_DIR}" || log "WARN: unable to sync medo-comfyui-vastai repo mirror"
 git_sync_repo "${S3_REPO}" "${S3_DIR}" || log "WARN: unable to sync comfyui_S3_offloader"
 
 AI_TOOLKIT_AUTOSTART="false"
@@ -207,12 +104,6 @@ register_http_port "${S3_OFFLOADER_PORT}" "Medo S3 Offloader"
 register_http_port "${FILEBROWSER_PORT}" "Medo FileBrowser"
 if [[ "${AI_TOOLKIT_AUTOSTART}" == "true" ]]; then
   register_http_port "${AI_TOOLKIT_PORT}" "Medo AI Toolkit"
-fi
-
-register_portal_service "Medo S3 Offloader" "http://127.0.0.1:${S3_OFFLOADER_PORT}" || log "WARN: unable to register S3 offloader in /etc/portal.yaml"
-register_portal_service "Medo FileBrowser" "http://127.0.0.1:${FILEBROWSER_PORT}" || log "WARN: unable to register FileBrowser in /etc/portal.yaml"
-if [[ "${AI_TOOLKIT_AUTOSTART}" == "true" ]]; then
-  register_portal_service "Medo AI Toolkit" "http://127.0.0.1:${AI_TOOLKIT_PORT}" || log "WARN: unable to register AI Toolkit in /etc/portal.yaml"
 fi
 
 log "Service summary (internal ports only):"
