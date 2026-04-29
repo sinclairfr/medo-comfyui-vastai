@@ -111,6 +111,90 @@ ensure_s3_offloader_deps() {
   fi
 }
 
+ensure_s3_offloader_settings() {
+  local settings_file="${S3_DIR}/settings.json"
+  log "Applying S3 offloader settings for this VM"
+
+  # Prefer explicit env, then common defaults.
+  local models_root="${S3O_MODELS_ROOT:-${MODELS_ROOT:-}}"
+  local s3_bucket="${S3O_S3_BUCKET:-${S3_BUCKET:-}}"
+  local s3_prefix="${S3O_S3_PREFIX:-${S3_PREFIX:-models-offload/}}"
+  local aws_profile="${S3O_AWS_PROFILE:-${AWS_PROFILE:-}}"
+  local aws_access_key_id="${S3O_AWS_ACCESS_KEY_ID:-${AWS_ACCESS_KEY_ID:-}}"
+  local aws_secret_access_key="${S3O_AWS_SECRET_ACCESS_KEY:-${AWS_SECRET_ACCESS_KEY:-}}"
+  local aws_session_token="${S3O_AWS_SESSION_TOKEN:-${AWS_SESSION_TOKEN:-}}"
+  local include_personal_stuff="${S3O_INCLUDE_PERSONAL_STUFF:-${INCLUDE_PERSONAL_STUFF:-false}}"
+
+  # VM-aware models directory auto-detection if not explicitly provided.
+  if [[ -z "${models_root}" ]]; then
+    if [[ -d "${WORKSPACE}/ComfyUI/models" ]]; then
+      models_root="${WORKSPACE}/ComfyUI/models"
+    elif [[ -d "${WORKSPACE}/comfyui/models" ]]; then
+      models_root="${WORKSPACE}/comfyui/models"
+    elif [[ -d "${WORKSPACE}/models" ]]; then
+      models_root="${WORKSPACE}/models"
+    else
+      models_root="${WORKSPACE}/ComfyUI/models"
+    fi
+  fi
+
+  export S3_SETTINGS_FILE="${settings_file}"
+  export S3_MODELS_ROOT="${models_root}"
+  export S3_BUCKET_VALUE="${s3_bucket}"
+  export S3_PREFIX_VALUE="${s3_prefix}"
+  export AWS_PROFILE_VALUE="${aws_profile}"
+  export AWS_ACCESS_KEY_ID_VALUE="${aws_access_key_id}"
+  export AWS_SECRET_ACCESS_KEY_VALUE="${aws_secret_access_key}"
+  export AWS_SESSION_TOKEN_VALUE="${aws_session_token}"
+  export INCLUDE_PERSONAL_STUFF_VALUE="${include_personal_stuff}"
+  export WORKSPACE
+
+  python3 - <<'PY' >>"${LOG_DIR}/on_start.log" 2>&1
+import json
+import os
+from pathlib import Path
+
+settings_path = Path(os.environ["S3_SETTINGS_FILE"])
+settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+raw = {}
+if settings_path.exists():
+    try:
+        raw = json.loads(settings_path.read_text()) or {}
+    except Exception:
+        raw = {}
+
+def _to_bool(v: str) -> bool:
+    return str(v).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+workspace = os.environ["WORKSPACE"]
+
+settings = dict(raw)
+settings["models_root"] = os.environ["S3_MODELS_ROOT"]
+settings["s3_bucket"] = os.environ["S3_BUCKET_VALUE"]
+settings["s3_prefix"] = os.environ["S3_PREFIX_VALUE"]
+settings["aws_profile"] = (os.environ.get("AWS_PROFILE_VALUE", "").strip() or None)
+settings["aws_access_key_id"] = (os.environ.get("AWS_ACCESS_KEY_ID_VALUE", "").strip() or None)
+settings["aws_secret_access_key"] = (os.environ.get("AWS_SECRET_ACCESS_KEY_VALUE", "").strip() or None)
+settings["aws_session_token"] = (os.environ.get("AWS_SESSION_TOKEN_VALUE", "").strip() or None)
+settings["include_personal_stuff"] = _to_bool(os.environ.get("INCLUDE_PERSONAL_STUFF_VALUE", "false"))
+
+# Keep existing personal_paths if present, otherwise provide sensible VM defaults.
+if not isinstance(settings.get("personal_paths"), list) or not settings.get("personal_paths"):
+    settings["personal_paths"] = [
+        f"{workspace}/ComfyUI/custom_nodes",
+        f"{workspace}/ComfyUI/user",
+        f"{workspace}/comfyui_S3_offloader",
+    ]
+
+settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+print(f"settings updated: {settings_path}")
+print(f"models_root={settings['models_root']}")
+print(f"s3_bucket={settings['s3_bucket']}")
+print(f"s3_prefix={settings['s3_prefix']}")
+PY
+}
+
 ensure_portal_apps() {
   local portal_yaml="/etc/portal.yaml"
   if [[ ! -f "${portal_yaml}" ]]; then
@@ -182,6 +266,7 @@ ensure_filebrowser_binary() {
 
 log "Preparing repositories"
 git_sync_repo "${S3_REPO}" "${S3_DIR}" || log "WARN: unable to sync comfyui_S3_offloader"
+ensure_s3_offloader_settings
 ensure_s3_offloader_deps
 ensure_portal_apps
 ensure_filebrowser_binary || true
