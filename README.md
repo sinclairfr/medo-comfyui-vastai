@@ -10,15 +10,36 @@ Use this repo's Dockerfile base:
 
 This setup keeps the native AI-Dock/Vast portal untouched and adds Medo services through Supervisor.
 
-## Vast.ai On-start Script
+## Vast.ai startup configuration
 
-In your Vast template **On-start Script** field:
+### 1) Startup command (important)
+
+Use a command that works even when Vast runs it with `/bin/sh`:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/on_start.sh)
+entrypoint.sh && curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/on_start.sh | bash
 ```
 
-`entrypoint.sh` is required in SSH/Jupyter launch modes so the native AI-Dock stack (portal + default services) starts first.
+This avoids process substitution `<(...)`, which is Bash-only and can fail in some templates.
+
+If `entrypoint.sh` sometimes exits non-zero but you still want Medo setup to run:
+
+```bash
+entrypoint.sh; curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/on_start.sh | bash
+```
+
+### 2) On-start script field
+
+If you prefer using Vast's **On-start Script** field directly:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/on_start.sh | bash
+```
+
+
+## Interpreting startup logs
+
+If you see `Error unmarshaling QuickTunnel response ... 429 Too Many Requests`, this is from the default Cloudflare quick tunnel rate limit and **not** from `on_start.sh`. Core services can still be healthy locally (portal, ComfyUI, Caddy, workers). Use direct Vast exposed ports when tunnel creation is rate-limited.
 
 ## Environment variables
 
@@ -29,6 +50,24 @@ bash <(curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vast
 | `FILEBROWSER_PORT` | `8081` | Internal port for FileBrowser. |
 | `AI_TOOLKIT_PORT` | `8675` | Internal port for ai-toolkit web service. |
 | `WORKSPACE` | `/workspace` | Persistent workspace root. |
+
+
+## S3 Offloader environment variables (Vast template)
+
+`on_start.sh` accepts both `S3O_*` names and fallback non-prefixed names.
+
+| Preferred (`S3O_*`) | Fallback | Notes |
+|---|---|---|
+| `S3O_MODELS_ROOT` | `MODELS_ROOT` | ComfyUI models directory path. |
+| `S3O_S3_BUCKET` | `S3_BUCKET` | S3 bucket name. |
+| `S3O_S3_PREFIX` | `S3_PREFIX` | S3 prefix/path inside bucket (default: `models-offload/`). |
+| `S3O_AWS_PROFILE` | `AWS_PROFILE` | AWS profile name (optional). |
+| `S3O_AWS_ACCESS_KEY_ID` | `AWS_ACCESS_KEY_ID` | AWS access key (optional if profile/role used). |
+| `S3O_AWS_SECRET_ACCESS_KEY` | `AWS_SECRET_ACCESS_KEY` | AWS secret key (optional if profile/role used). |
+| `S3O_AWS_SESSION_TOKEN` | `AWS_SESSION_TOKEN` | AWS session token (optional). |
+| `S3O_INCLUDE_PERSONAL_STUFF` | `INCLUDE_PERSONAL_STUFF` | `true/false`, include personal paths backup. |
+
+Priority rule: `S3O_*` overrides fallback variables when both are set.
 
 ## Ports to expose in Vast
 
