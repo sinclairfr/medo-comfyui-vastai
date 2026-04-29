@@ -706,9 +706,17 @@ if [[ ! -f "${ATK_DB}" ]]; then
     DATABASE_URL="file:${ATK_DB}" npx prisma db push --skip-generate >> "${LOG}" 2>&1 || true
 fi
 
+
+
+
 cd "${ATK_DIR}/ui"
 nohup node dist/cron/worker.js                >> /workspace/ai-toolkit-worker.log 2>&1 &
 nohup node_modules/.bin/next start --port 8675 >> /workspace/ai-toolkit-server.log 2>&1 &
 log "ai-toolkit started on :8675"
 
 log "── on_start.sh done ─"
+
+
+pkill -f "http.server 1111" 2>/dev/null || true
+nohup python3 -m http.server 1111 --directory /workspace/portal \
+    >> /workspace/portal.log 2>&1 &
