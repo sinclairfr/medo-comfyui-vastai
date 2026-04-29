@@ -2,19 +2,16 @@
 # on_start.sh — medo custom tools loader
 #
 # Called from the Vast.ai "On-start Script" field AFTER entrypoint.sh:
-#   entrypoint.sh
-#   /opt/medo/on_start.sh
+#   entrypoint.sh; curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/on_start.sh | bash
 #
 # What it adds on top of ai-dock/comfyui:
 #   • extra ComfyUI custom node Python deps
 #   • comfyui_S3_offloader  (started as daemon on every boot)
+#   • custom portal served on port 72299
 #   • ai-toolkit + Next.js UI (optional — set RUN_AI_TOOLKIT=true)
 #
 # All heavy work is cached in /workspace so subsequent boots are fast.
 # This script never touches system Python or base-image files.
-
-# No set -e: we handle errors individually so a single failure doesn't
-# kill the whole script and cause a supervisor restart loop.
 
 # ── Guard: prevent concurrent or repeated runs ───────────────────────────────
 LOCK="/tmp/medo-onstart.lock"
@@ -33,7 +30,6 @@ log() { echo "[medo] $*" | tee -a "${LOG}" 2>/dev/null || echo "[medo] $*"; }
 log "── on_start.sh begin (PID $$) ─────────────────────────────────"
 
 # ── Python interpreter ───────────────────────────────────────────────────────
-# ai-dock/comfyui sets COMFYUI_VENV; fall back to system python3 if missing.
 PY="${COMFYUI_VENV:+${COMFYUI_VENV}/bin/python3}"
 [[ -z "${PY}" || ! -x "${PY}" ]] && PY="$(command -v python3 2>/dev/null || true)"
 if [[ -z "${PY}" ]]; then
@@ -43,7 +39,6 @@ fi
 log "Python: ${PY}"
 
 # ── Extra ComfyUI custom node deps ──────────────────────────────────────────
-# pip skips packages already satisfied — idempotent on every boot.
 log "Installing extra ComfyUI deps (skipped if already present)..."
 "${PY}" -m pip install -q --no-cache-dir \
     flask boto3 python-dotenv \
@@ -73,6 +68,588 @@ if [[ -f "${S3_DIR}/app.py" ]]; then
     log "S3 offloader started (PID $!)"
 fi
 
+# ── Custom portal ─────────────────────────────────────────────────────────────
+log "Starting custom portal on :72299..."
+mkdir -p /workspace/portal
+
+cat > /workspace/portal/index.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Medo Portal — Instance #35790798</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=Syne:wght@400;600;700&display=swap');
+
+  :root {
+    --bg:       #0b0d12;
+    --surface:  #10131a;
+    --surface2: #161a24;
+    --border:   #1e2330;
+    --border2:  #2a3048;
+    --text:     #c9d1e0;
+    --muted:    #4e5a72;
+    --accent:   #7c5cfc;
+    --accent2:  #3de6c8;
+    --warn:     #f0a429;
+    --ok:       #22d07a;
+    --mono:     'JetBrains Mono', monospace;
+    --sans:     'Syne', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.6;
+    min-height: 100vh;
+    padding: 2rem;
+  }
+
+  /* ── scanline overlay ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.06) 2px,
+      rgba(0,0,0,0.06) 4px
+    );
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  .layout {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 2.5rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    animation: fadeIn 0.4s ease;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .logo-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3px;
+    width: 32px;
+    height: 32px;
+  }
+
+  .logo-cell {
+    border-radius: 2px;
+    background: var(--accent);
+    opacity: 0.9;
+    transition: opacity 0.2s;
+  }
+  .logo-cell:nth-child(2) { opacity: 0.5; background: var(--accent2); }
+  .logo-cell:nth-child(3) { opacity: 0.4; }
+  .logo-cell:nth-child(4) { opacity: 0.2; }
+
+  .brand-text h1 {
+    font-family: var(--sans);
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+
+  .brand-text .instance-id {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: var(--mono);
+  }
+
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 14px;
+    border: 1px solid var(--ok);
+    border-radius: 4px;
+    color: var(--ok);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .pulse {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ok);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.7); }
+  }
+
+  /* ── Meta strip ── */
+  .meta-strip {
+    display: flex;
+    gap: 0;
+    margin-bottom: 2rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    animation: fadeIn 0.5s ease 0.1s both;
+  }
+
+  .meta-item {
+    flex: 1;
+    padding: 12px 16px;
+    border-right: 1px solid var(--border);
+  }
+  .meta-item:last-child { border-right: none; }
+
+  .meta-label {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 4px;
+  }
+
+  .meta-val {
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  .meta-val.accent { color: var(--accent2); }
+
+  /* ── Section title ── */
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ── Services grid ── */
+  .services-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+    margin-bottom: 2rem;
+    animation: fadeIn 0.5s ease 0.2s both;
+  }
+
+  .service-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem 1.2rem;
+    text-decoration: none;
+    display: block;
+    transition: border-color 0.15s, background 0.15s, transform 0.1s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .service-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--border2);
+    transition: background 0.15s;
+  }
+
+  .service-card:hover {
+    border-color: var(--border2);
+    background: var(--surface2);
+    transform: translateY(-1px);
+  }
+
+  .service-card.primary::before { background: var(--accent); }
+  .service-card.primary { border-color: rgba(124,92,252,0.35); }
+
+  .service-card:hover::before { background: var(--accent2); }
+  .service-card.primary:hover::before { background: var(--accent); }
+
+  .svc-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .svc-icon {
+    font-size: 18px;
+    line-height: 1;
+  }
+
+  .svc-status {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ok);
+  }
+
+  .svc-name {
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 600;
+    color: #e8edf5;
+    margin-bottom: 3px;
+  }
+
+  .svc-desc {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 10px;
+    line-height: 1.4;
+  }
+
+  .svc-port {
+    font-size: 10px;
+    color: var(--accent2);
+    letter-spacing: 0.03em;
+    background: rgba(61, 230, 200, 0.07);
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 3px;
+    border: 1px solid rgba(61, 230, 200, 0.15);
+  }
+
+  .primary-badge {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    border: 1px solid rgba(124,92,252,0.4);
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-bottom: 8px;
+    display: inline-block;
+  }
+
+  /* ── Bottom split ── */
+  .bottom-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    animation: fadeIn 0.5s ease 0.3s both;
+  }
+
+  /* ── Info table ── */
+  .info-table {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .info-table table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .info-table tr { border-bottom: 1px solid var(--border); }
+  .info-table tr:last-child { border-bottom: none; }
+
+  .info-table td {
+    padding: 9px 14px;
+    font-size: 11px;
+  }
+
+  .info-table td:first-child {
+    color: var(--muted);
+    width: 44%;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 10px;
+  }
+
+  .info-table td:last-child {
+    color: var(--text);
+    font-weight: 400;
+  }
+
+  /* ── Port map ── */
+  .port-map {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .port-map table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10px;
+  }
+
+  .port-map th {
+    padding: 7px 12px;
+    text-align: left;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 500;
+  }
+
+  .port-map td {
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+
+  .port-map tr:last-child td { border-bottom: none; }
+
+  .port-map td:first-child { color: var(--muted); font-size: 10px; }
+  .port-map td.ext { color: var(--accent2); }
+
+  .ok-dot { color: var(--ok); }
+
+  /* ── SSH hint ── */
+  .ssh-hint {
+    margin-top: 1.5rem;
+    padding: 12px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--muted);
+    animation: fadeIn 0.5s ease 0.4s both;
+  }
+
+  .ssh-hint span { color: var(--accent2); }
+
+  /* ── Footer ── */
+  .footer {
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    font-size: 10px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    animation: fadeIn 0.5s ease 0.5s both;
+  }
+
+  .footer-clock { color: var(--accent); }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (max-width: 600px) {
+    body { padding: 1rem; }
+    .meta-strip { flex-direction: column; }
+    .meta-item { border-right: none; border-bottom: 1px solid var(--border); }
+    .meta-item:last-child { border-bottom: none; }
+    .bottom-split { grid-template-columns: 1fr; }
+    .header { flex-direction: column; gap: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="brand">
+      <div class="logo-grid">
+        <div class="logo-cell"></div>
+        <div class="logo-cell"></div>
+        <div class="logo-cell"></div>
+        <div class="logo-cell"></div>
+      </div>
+      <div class="brand-text">
+        <h1>Medo Portal</h1>
+        <span class="instance-id">Instance #35790798 &mdash; 70.69.192.6</span>
+      </div>
+    </div>
+    <div class="status-badge">
+      <div class="pulse"></div>
+      Running
+    </div>
+  </div>
+
+  <!-- Meta strip -->
+  <div class="meta-strip">
+    <div class="meta-item">
+      <div class="meta-label">Image</div>
+      <div class="meta-val">ai-dock/comfyui v2</div>
+    </div>
+    <div class="meta-item">
+      <div class="meta-label">CUDA</div>
+      <div class="meta-val accent">12.1.1</div>
+    </div>
+    <div class="meta-item">
+      <div class="meta-label">Python</div>
+      <div class="meta-val">3.10</div>
+    </div>
+    <div class="meta-item">
+      <div class="meta-label">Port range</div>
+      <div class="meta-val">29519 &ndash; 29916</div>
+    </div>
+    <div class="meta-item">
+      <div class="meta-label">IP type</div>
+      <div class="meta-val">Dynamic</div>
+    </div>
+  </div>
+
+  <!-- Services -->
+  <div class="section-title">Services</div>
+  <div class="services-grid">
+
+    <a class="service-card primary" href="http://70.69.192.6:29732" target="_blank">
+      <div class="primary-badge">Primary</div>
+      <div class="svc-top">
+        <span class="svc-icon">&#9711;</span>
+        <div class="svc-status"></div>
+      </div>
+      <div class="svc-name">ComfyUI</div>
+      <div class="svc-desc">Diffusion workflow engine</div>
+      <span class="svc-port">:29732 &rarr; 8188</span>
+    </a>
+
+    <a class="service-card" href="http://70.69.192.6:29916" target="_blank">
+      <div class="svc-top">
+        <span class="svc-icon">&#9670;</span>
+        <div class="svc-status"></div>
+      </div>
+      <div class="svc-name">API Wrapper</div>
+      <div class="svc-desc">REST + Swagger /docs</div>
+      <span class="svc-port">:29916 &rarr; 8288</span>
+    </a>
+
+    <a class="service-card" href="http://70.69.192.6:29716" target="_blank">
+      <div class="svc-top">
+        <span class="svc-icon">&#9641;</span>
+        <div class="svc-status"></div>
+      </div>
+      <div class="svc-name">Jupyter</div>
+      <div class="svc-desc">Notebook &amp; terminal</div>
+      <span class="svc-port">:29716 &rarr; 8080</span>
+    </a>
+
+    <a class="service-card" href="http://70.69.192.6:29717" target="_blank">
+      <div class="svc-top">
+        <span class="svc-icon">&#8635;</span>
+        <div class="svc-status"></div>
+      </div>
+      <div class="svc-name">Syncthing</div>
+      <div class="svc-desc">Sync /workspace</div>
+      <span class="svc-port">:29717 &rarr; 8384</span>
+    </a>
+
+  </div>
+
+  <!-- Bottom split: info + port map -->
+  <div class="bottom-split">
+
+    <div>
+      <div class="section-title">Instance info</div>
+      <div class="info-table">
+        <table>
+          <tr><td>Instance ID</td><td>35790798</td></tr>
+          <tr><td>Public IP</td><td>70.69.192.6</td></tr>
+          <tr><td>Copy port</td><td>29999</td></tr>
+          <tr><td>Local IPs</td><td>10.0.0.84 / 172.17.0.1</td></tr>
+          <tr><td>SSH</td><td>70.69.192.6:29519</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title">Port map</div>
+      <div class="port-map">
+        <table>
+          <thead>
+            <tr><th>External</th><th>&#8594;</th><th>Int.</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="ext">:29671</td><td></td><td>1111</td><td class="ok-dot">&#9679;</td></tr>
+            <tr><td class="ext">:29519</td><td></td><td>22</td><td class="ok-dot">&#9679;</td></tr>
+            <tr><td class="ext">:29732</td><td></td><td>8188</td><td class="ok-dot">&#9679;</td></tr>
+            <tr><td class="ext">:29716</td><td></td><td>8080</td><td class="ok-dot">&#9679;</td></tr>
+            <tr><td class="ext">:29916</td><td></td><td>8288</td><td class="ok-dot">&#9679;</td></tr>
+            <tr><td class="ext">:29717</td><td></td><td>8384</td><td class="ok-dot">&#9679;</td></tr>
+            <tr><td class="ext">:29643</td><td></td><td>29643</td><td class="ok-dot">&#9679;</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- SSH hint -->
+  <div class="ssh-hint">
+    ssh&nbsp;&nbsp;<span>root@70.69.192.6</span>&nbsp;&nbsp;-p&nbsp;<span>29519</span>
+    &nbsp;&nbsp;/&nbsp;&nbsp;
+    log:&nbsp;<span>tail -f /workspace/medo-onstart.log</span>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <span>ghcr.io/ai-dock/comfyui:v2-cuda-12.1.1-base-22.04</span>
+    <span class="footer-clock" id="clock"></span>
+  </div>
+
+</div>
+
+<script>
+  // Live clock — no external deps
+  function tick() {
+    var d = new Date();
+    document.getElementById('clock').textContent =
+      d.toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+  }
+  tick();
+  setInterval(tick, 1000);
+</script>
+</body>
+</html>
+HTMLEOF
+
+# Kill any previous instance, then restart
+pkill -f "http.server 72299" 2>/dev/null || true
+nohup python3 -m http.server 72299 --directory /workspace/portal \
+    >> /workspace/portal.log 2>&1 &
+log "Custom portal started on :72299 (PID $!)"
+
 # ── ai-toolkit (optional) ────────────────────────────────────────────────────
 case "${RUN_AI_TOOLKIT:-false}" in
     true|1|yes|TRUE|YES) ;;
@@ -92,7 +669,6 @@ if ! node --version 2>/dev/null | grep -q '^v20'; then
     apt-get install -y -q nodejs >> "${LOG}" 2>&1 || true
 fi
 
-# Store ai-toolkit code + build on workspace volume (persists across instances)
 ATK_DIR="/workspace/ai-toolkit"
 ATK_DATA="/workspace/ai-toolkit-data"
 ATK_DB="/workspace/ai-toolkit.db"
@@ -119,7 +695,6 @@ if [[ ! -d "${ATK_DIR}/ui/.next" ]]; then
     npm cache clean --force >> "${LOG}" 2>&1 || true
 fi
 
-# Persistent workspace dirs + symlinks
 mkdir -p "${ATK_DATA}"/{config,datasets,output,jobs}
 for d in config datasets output jobs; do
     [[ ! -e "${ATK_DIR}/${d}" ]] && ln -sfn "${ATK_DATA}/${d}" "${ATK_DIR}/${d}" 2>/dev/null || true
@@ -132,7 +707,7 @@ if [[ ! -f "${ATK_DB}" ]]; then
 fi
 
 cd "${ATK_DIR}/ui"
-nohup node dist/cron/worker.js               >> /workspace/ai-toolkit-worker.log 2>&1 &
+nohup node dist/cron/worker.js                >> /workspace/ai-toolkit-worker.log 2>&1 &
 nohup node_modules/.bin/next start --port 8675 >> /workspace/ai-toolkit-server.log 2>&1 &
 log "ai-toolkit started on :8675"
 
