@@ -110,9 +110,47 @@ ensure_s3_offloader_deps() {
   fi
 }
 
+ensure_portal_apps() {
+  local portal_yaml="/etc/portal.yaml"
+  if [[ ! -f "${portal_yaml}" ]]; then
+    log "WARN: ${portal_yaml} not found; skipping portal app registration"
+    return 0
+  fi
+
+  log "Registering Medo apps in ${portal_yaml}"
+  python3 - <<'PY' >>"${LOG_DIR}/on_start.log" 2>&1
+import yaml
+from pathlib import Path
+
+p = Path('/etc/portal.yaml')
+data = yaml.safe_load(p.read_text()) or {}
+apps = data.setdefault('applications', {})
+
+apps['Medo S3 Offloader'] = {
+    'hostname': 'localhost',
+    'external_port': 5055,
+    'internal_port': 5055,
+    'open_path': '/',
+    'name': 'Medo S3 Offloader',
+}
+
+apps['Medo FileBrowser'] = {
+    'hostname': 'localhost',
+    'external_port': 8081,
+    'internal_port': 8081,
+    'open_path': '/',
+    'name': 'Medo FileBrowser',
+}
+
+p.write_text(yaml.safe_dump(data, sort_keys=False))
+print('portal.yaml updated with Medo apps')
+PY
+}
+
 log "Preparing repositories"
 git_sync_repo "${S3_REPO}" "${S3_DIR}" || log "WARN: unable to sync comfyui_S3_offloader"
 ensure_s3_offloader_deps
+ensure_portal_apps
 
 AI_TOOLKIT_AUTOSTART="false"
 if [[ "${RUN_AI_TOOLKIT,,}" == "true" ]]; then
@@ -141,6 +179,8 @@ render_supervisor_program "${SUPERVISOR_TPL_DIR}/medo-s3-offloader.conf" "${SUPE
 
 if command -v filebrowser >/dev/null 2>&1; then
   render_supervisor_program "${SUPERVISOR_TPL_DIR}/medo-filebrowser.conf" "${SUPERVISOR_DST_DIR}/medo-filebrowser.conf"
+  # Ensure FileBrowser listens on all interfaces so Vast mapped ports can reach it.
+  sed -i 's|^command=filebrowser |command=filebrowser -a 0.0.0.0 |' "${SUPERVISOR_DST_DIR}/medo-filebrowser.conf"
   enabled_programs+=("medo-filebrowser")
 else
   log "WARN: filebrowser binary not found; skipping medo-filebrowser"
