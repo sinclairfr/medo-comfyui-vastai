@@ -135,6 +135,19 @@ apps['Medo S3 Offloader'] = {
     'name': 'Medo S3 Offloader',
 }
 
+apps['Medo FileBrowser'] = {
+    'hostname': 'localhost',
+    'external_port': 8081,
+    'internal_port': 8081,
+    'open_path': '/',
+    'name': 'Medo FileBrowser',
+}
+
+p.write_text(yaml.safe_dump(data, sort_keys=False))
+print('portal.yaml updated with Medo apps')
+PY
+}
+
 ensure_filebrowser_binary() {
   if command -v filebrowser >/dev/null 2>&1; then
     return 0
@@ -165,19 +178,6 @@ ensure_filebrowser_binary() {
 
   rm -rf "${tmpdir}"
   return 0
-}
-
-apps['Medo FileBrowser'] = {
-    'hostname': 'localhost',
-    'external_port': 8081,
-    'internal_port': 8081,
-    'open_path': '/',
-    'name': 'Medo FileBrowser',
-}
-
-p.write_text(yaml.safe_dump(data, sort_keys=False))
-print('portal.yaml updated with Medo apps')
-PY
 }
 
 log "Preparing repositories"
