@@ -15,7 +15,6 @@ This setup keeps the native AI-Dock/Vast portal untouched and adds Medo services
 In your Vast template **On-start Script** field:
 
 ```bash
-entrypoint.sh
 bash <(curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/on_start.sh)
 ```
 
