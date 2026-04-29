@@ -1,4 +1,4 @@
-# medo-comfyui-vastai
+# ComfyUI + Medo Services on Vast.ai
 
 Production-ready startup layer for `vastai/comfy` instances on Vast.ai.
 
