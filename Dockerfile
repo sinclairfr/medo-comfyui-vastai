@@ -9,7 +9,7 @@
 # Vast.ai template — On-start Script:
 #   entrypoint.sh
 #   /opt/medo/on_start.sh
-FROM ghcr.io/ai-dock/comfyui:latest-cuda-12.1.1-base-22.04
+FROM ghcr.io/ai-dock/comfyui:v2-cuda-12.1.1-base-22.04
 
 COPY on_start.sh /opt/medo/on_start.sh
 RUN chmod +x /opt/medo/on_start.sh
