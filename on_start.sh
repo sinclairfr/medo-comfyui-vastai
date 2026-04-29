@@ -23,6 +23,7 @@ S3_DIR="${WORKSPACE}/comfyui_S3_offloader"
 S3_REPO="https://github.com/sinclairfr/comfyui_S3_offloader"
 AI_TOOLKIT_DIR="${WORKSPACE}/ai-toolkit"
 AI_TOOLKIT_REPO="https://github.com/ostris/ai-toolkit"
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python3)}"
 
 mkdir -p "${WORKSPACE}" "${LOG_DIR}" "${SERVICES_DIR}" "${SERVICES_DIR}/filebrowser"
 
@@ -105,7 +106,7 @@ render_supervisor_program() {
 ensure_s3_offloader_deps() {
   if [[ -f "${S3_DIR}/requirements.txt" ]]; then
     log "Installing S3 offloader Python dependencies"
-    python3 -m pip install -r "${S3_DIR}/requirements.txt" >>"${LOG_DIR}/on_start.log" 2>&1 || \
+    "${PYTHON_BIN}" -m pip install -r "${S3_DIR}/requirements.txt" >>"${LOG_DIR}/on_start.log" 2>&1 || \
       log "WARN: failed to install S3 offloader dependencies"
   fi
 }
@@ -176,6 +177,8 @@ mkdir -p "${SUPERVISOR_DST_DIR}"
 enabled_programs=("medo-s3-offloader")
 
 render_supervisor_program "${SUPERVISOR_TPL_DIR}/medo-s3-offloader.conf" "${SUPERVISOR_DST_DIR}/medo-s3-offloader.conf"
+# Ensure supervisor uses the same Python interpreter used for dependency install.
+sed -i "s|^command=python3 app.py --port |command=${PYTHON_BIN} app.py --port |" "${SUPERVISOR_DST_DIR}/medo-s3-offloader.conf"
 
 if command -v filebrowser >/dev/null 2>&1; then
   render_supervisor_program "${SUPERVISOR_TPL_DIR}/medo-filebrowser.conf" "${SUPERVISOR_DST_DIR}/medo-filebrowser.conf"
