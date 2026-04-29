@@ -135,6 +135,38 @@ apps['Medo S3 Offloader'] = {
     'name': 'Medo S3 Offloader',
 }
 
+ensure_filebrowser_binary() {
+  if command -v filebrowser >/dev/null 2>&1; then
+    return 0
+  fi
+
+  log "FileBrowser binary not found; attempting installation"
+  local arch fb_arch tmpdir
+  arch="$(uname -m)"
+  case "${arch}" in
+    x86_64) fb_arch="linux-amd64" ;;
+    aarch64|arm64) fb_arch="linux-arm64" ;;
+    *)
+      log "WARN: unsupported architecture for filebrowser install: ${arch}"
+      return 1
+      ;;
+  esac
+
+  tmpdir="$(mktemp -d)"
+  if curl -fsSL "https://github.com/filebrowser/filebrowser/releases/latest/download/${fb_arch}-filebrowser.tar.gz" -o "${tmpdir}/filebrowser.tar.gz" \
+    && tar -xzf "${tmpdir}/filebrowser.tar.gz" -C "${tmpdir}" \
+    && install -m 0755 "${tmpdir}/filebrowser" /usr/local/bin/filebrowser; then
+    log "Installed filebrowser to /usr/local/bin/filebrowser"
+  else
+    log "WARN: failed to install filebrowser binary"
+    rm -rf "${tmpdir}"
+    return 1
+  fi
+
+  rm -rf "${tmpdir}"
+  return 0
+}
+
 apps['Medo FileBrowser'] = {
     'hostname': 'localhost',
     'external_port': 8081,
@@ -152,6 +184,7 @@ log "Preparing repositories"
 git_sync_repo "${S3_REPO}" "${S3_DIR}" || log "WARN: unable to sync comfyui_S3_offloader"
 ensure_s3_offloader_deps
 ensure_portal_apps
+ensure_filebrowser_binary || true
 
 AI_TOOLKIT_AUTOSTART="false"
 if [[ "${RUN_AI_TOOLKIT,,}" == "true" ]]; then
