@@ -18,6 +18,8 @@ In your Vast template **On-start Script** field:
 bash <(curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/on_start.sh)
 ```
 
+`entrypoint.sh` is required in SSH/Jupyter launch modes so the native AI-Dock stack (portal + default services) starts first.
+
 ## Environment variables
 
 | Variable | Default | Description |
@@ -50,6 +52,7 @@ Expose only the ports you need from the container:
 - Initializes FileBrowser DB under `/workspace/services/filebrowser.db` (idempotent).
 - Renders Supervisor program configs and starts/updates services with `supervisorctl`.
 - Prints internal service summary.
+- If `/run/http_ports` exists, appends Medo services so they can appear in the native portal links list.
 
 ## Troubleshooting
 

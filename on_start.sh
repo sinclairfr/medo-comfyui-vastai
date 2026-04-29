@@ -28,6 +28,16 @@ mkdir -p "${WORKSPACE}" "${LOG_DIR}" "${SERVICES_DIR}" "${SERVICES_DIR}/filebrow
 
 log() { echo "[medo] $*" | tee -a "${LOG_DIR}/on_start.log"; }
 
+register_http_port() {
+  local port="$1" name="$2"
+  local http_ports="/run/http_ports"
+  [[ -f "${http_ports}" ]] || return 0
+  if ! grep -Eq "(^|[^0-9])${port}([^0-9]|$)" "${http_ports}"; then
+    echo "${port} ${name}" >> "${http_ports}"
+    log "Registered ${name} on ${port} in /run/http_ports"
+  fi
+}
+
 git_sync_repo() {
   local repo_url="$1" target_dir="$2"
   if [[ ! -d "${target_dir}/.git" ]]; then
@@ -87,6 +97,13 @@ fi
 supervisorctl start medo-s3-offloader medo-filebrowser >>"${LOG_DIR}/on_start.log" 2>&1 || true
 if [[ "${AI_TOOLKIT_AUTOSTART}" == "true" ]]; then
   supervisorctl start medo-ai-toolkit-server medo-ai-toolkit-worker >>"${LOG_DIR}/on_start.log" 2>&1 || true
+fi
+
+# Expose service hints to AI-Dock portal if /run/http_ports is managed by the base image.
+register_http_port "${S3_OFFLOADER_PORT}" "Medo S3 Offloader"
+register_http_port "${FILEBROWSER_PORT}" "Medo FileBrowser"
+if [[ "${AI_TOOLKIT_AUTOSTART}" == "true" ]]; then
+  register_http_port "${AI_TOOLKIT_PORT}" "Medo AI Toolkit"
 fi
 
 log "Service summary (internal ports only):"
