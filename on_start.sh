@@ -28,44 +28,6 @@ mkdir -p "${WORKSPACE}" "${LOG_DIR}" "${SERVICES_DIR}" "${SERVICES_DIR}/filebrow
 
 log() { echo "[medo] $*" | tee -a "${LOG_DIR}/on_start.log"; }
 
-register_portal_service() {
-  local name="$1" target_url="$2"
-  local portal_yaml="/etc/portal.yaml"
-  [[ -f "${portal_yaml}" ]] || return 0
-  python3 - "$portal_yaml" "$name" "$target_url" >>"${LOG_DIR}/on_start.log" 2>&1 <<'PY' || return 1
-import sys
-from pathlib import Path
-try:
-    import yaml
-except Exception:
-    raise SystemExit(1)
-
-portal_path = Path(sys.argv[1])
-name = sys.argv[2]
-target = sys.argv[3]
-data = {}
-if portal_path.exists():
-    raw = portal_path.read_text() or ""
-    data = yaml.safe_load(raw) or {}
-
-services = data.get("services")
-if not isinstance(services, list):
-    services = []
-
-exists = False
-for item in services:
-    if isinstance(item, dict) and item.get("name") == name:
-        item["url"] = target
-        exists = True
-        break
-if not exists:
-    services.append({"name": name, "url": target})
-data["services"] = services
-portal_path.write_text(yaml.safe_dump(data, sort_keys=False))
-print(f"portal.yaml updated: {name} -> {target}")
-PY
-}
-
 register_http_port() {
   local port="$1" name="$2"
   local http_ports="/run/http_ports"
@@ -142,12 +104,6 @@ register_http_port "${S3_OFFLOADER_PORT}" "Medo S3 Offloader"
 register_http_port "${FILEBROWSER_PORT}" "Medo FileBrowser"
 if [[ "${AI_TOOLKIT_AUTOSTART}" == "true" ]]; then
   register_http_port "${AI_TOOLKIT_PORT}" "Medo AI Toolkit"
-fi
-
-register_portal_service "Medo S3 Offloader" "http://127.0.0.1:${S3_OFFLOADER_PORT}" || log "WARN: unable to register S3 offloader in /etc/portal.yaml"
-register_portal_service "Medo FileBrowser" "http://127.0.0.1:${FILEBROWSER_PORT}" || log "WARN: unable to register FileBrowser in /etc/portal.yaml"
-if [[ "${AI_TOOLKIT_AUTOSTART}" == "true" ]]; then
-  register_portal_service "Medo AI Toolkit" "http://127.0.0.1:${AI_TOOLKIT_PORT}" || log "WARN: unable to register AI Toolkit in /etc/portal.yaml"
 fi
 
 log "Service summary (internal ports only):"

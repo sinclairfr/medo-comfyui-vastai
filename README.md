@@ -15,7 +15,6 @@ This setup keeps the native AI-Dock/Vast portal untouched and adds Medo services
 In your Vast template **On-start Script** field:
 
 ```bash
-entrypoint.sh
 bash <(curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/on_start.sh)
 ```
 
@@ -54,7 +53,6 @@ Expose only the ports you need from the container:
 - Renders Supervisor program configs and starts/updates services with `supervisorctl`.
 - Prints internal service summary.
 - If `/run/http_ports` exists, appends Medo services so they can appear in the native portal links list.
-- If `/etc/portal.yaml` exists, upserts Medo service entries so the native portal resolver can list them.
 
 ## Troubleshooting
 
@@ -62,7 +60,6 @@ Expose only the ports you need from the container:
 supervisorctl status
 tail -f /workspace/logs/*.log
 bash scripts/discover_ai_dock_portal.sh
-cat /etc/portal.yaml
 ```
 
 ## Safety guarantees
