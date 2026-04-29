@@ -12,7 +12,7 @@ WORKSPACE="${WORKSPACE:-/workspace}"
 LOG_DIR="${WORKSPACE}/logs"
 SERVICES_DIR="${WORKSPACE}/services"
 SUPERVISOR_DST_DIR="/etc/supervisor/conf.d"
-SUPERVISOR_TPL_DIR="/opt/medo/supervisor-templates"
+SUPERVISOR_TPL_DIR="${SUPERVISOR_TPL_DIR:-/opt/medo/supervisor-templates}"
 
 S3_OFFLOADER_PORT="${S3_OFFLOADER_PORT:-5055}"
 FILEBROWSER_PORT="${FILEBROWSER_PORT:-8081}"
@@ -50,6 +50,45 @@ git_sync_repo() {
   fi
 }
 
+detect_supervisor_templates_dir() {
+  if [[ -d "${SUPERVISOR_TPL_DIR}" ]]; then
+    return 0
+  fi
+
+  local fallback_dirs=(
+    "${WORKSPACE}/medo-comfyui-vastai/supervisord/programs"
+    "${WORKSPACE}/comfyui_S3_offloader/supervisord/programs"
+    "/tmp/medo-comfyui-vastai/supervisord/programs"
+    "$(pwd)/supervisord/programs"
+  )
+
+  for d in "${fallback_dirs[@]}"; do
+    if [[ -d "${d}" ]] && [[ -f "${d}/medo-s3-offloader.conf" ]]; then
+      SUPERVISOR_TPL_DIR="${d}"
+      log "Using fallback supervisor template dir: ${SUPERVISOR_TPL_DIR}"
+      return 0
+    fi
+  done
+
+  # Last-resort: bootstrap from upstream repo templates.
+  local tmp_dir="/tmp/medo-comfyui-vastai"
+  if [[ ! -d "${tmp_dir}/.git" ]]; then
+    log "Template directory missing. Cloning upstream repo for templates."
+    git clone --depth 1 https://github.com/sinclairfr/medo-comfyui-vastai "${tmp_dir}" >>"${LOG_DIR}/on_start.log" 2>&1 || true
+  fi
+
+  if [[ -d "${tmp_dir}/supervisord/programs" ]] && [[ -f "${tmp_dir}/supervisord/programs/medo-s3-offloader.conf" ]]; then
+    mkdir -p /opt/medo/supervisor-templates
+    cp -f "${tmp_dir}"/supervisord/programs/medo-*.conf /opt/medo/supervisor-templates/ 2>/dev/null || true
+    SUPERVISOR_TPL_DIR="/opt/medo/supervisor-templates"
+    log "Bootstrapped templates into ${SUPERVISOR_TPL_DIR}"
+    return 0
+  fi
+
+  log "ERROR: No valid supervisor template directory found."
+  return 1
+}
+
 render_supervisor_program() {
   local src="$1" dst="$2"
   sed \
@@ -63,8 +102,17 @@ render_supervisor_program() {
     "${src}" > "${dst}"
 }
 
+ensure_s3_offloader_deps() {
+  if [[ -f "${S3_DIR}/requirements.txt" ]]; then
+    log "Installing S3 offloader Python dependencies"
+    python3 -m pip install -r "${S3_DIR}/requirements.txt" >>"${LOG_DIR}/on_start.log" 2>&1 || \
+      log "WARN: failed to install S3 offloader dependencies"
+  fi
+}
+
 log "Preparing repositories"
 git_sync_repo "${S3_REPO}" "${S3_DIR}" || log "WARN: unable to sync comfyui_S3_offloader"
+ensure_s3_offloader_deps
 
 AI_TOOLKIT_AUTOSTART="false"
 if [[ "${RUN_AI_TOOLKIT,,}" == "true" ]]; then
@@ -81,10 +129,30 @@ if command -v filebrowser >/dev/null 2>&1; then
   fi
 fi
 
+if ! detect_supervisor_templates_dir; then
+  exit 1
+fi
+
 mkdir -p "${SUPERVISOR_DST_DIR}"
-for tpl in medo-s3-offloader.conf medo-filebrowser.conf medo-ai-toolkit-server.conf medo-ai-toolkit-worker.conf; do
-  render_supervisor_program "${SUPERVISOR_TPL_DIR}/${tpl}" "${SUPERVISOR_DST_DIR}/${tpl}"
-done
+
+enabled_programs=("medo-s3-offloader")
+
+render_supervisor_program "${SUPERVISOR_TPL_DIR}/medo-s3-offloader.conf" "${SUPERVISOR_DST_DIR}/medo-s3-offloader.conf"
+
+if command -v filebrowser >/dev/null 2>&1; then
+  render_supervisor_program "${SUPERVISOR_TPL_DIR}/medo-filebrowser.conf" "${SUPERVISOR_DST_DIR}/medo-filebrowser.conf"
+  enabled_programs+=("medo-filebrowser")
+else
+  log "WARN: filebrowser binary not found; skipping medo-filebrowser"
+  rm -f "${SUPERVISOR_DST_DIR}/medo-filebrowser.conf"
+fi
+
+render_supervisor_program "${SUPERVISOR_TPL_DIR}/medo-ai-toolkit-server.conf" "${SUPERVISOR_DST_DIR}/medo-ai-toolkit-server.conf"
+render_supervisor_program "${SUPERVISOR_TPL_DIR}/medo-ai-toolkit-worker.conf" "${SUPERVISOR_DST_DIR}/medo-ai-toolkit-worker.conf"
+
+if [[ "${AI_TOOLKIT_AUTOSTART}" != "true" ]]; then
+  rm -f "${SUPERVISOR_DST_DIR}/medo-ai-toolkit-server.conf" "${SUPERVISOR_DST_DIR}/medo-ai-toolkit-worker.conf"
+fi
 
 if pgrep -x supervisord >/dev/null 2>&1; then
   supervisorctl reread >>"${LOG_DIR}/on_start.log" 2>&1 || true
@@ -94,7 +162,9 @@ else
   supervisord -c /etc/supervisor/supervisord.conf >>"${LOG_DIR}/on_start.log" 2>&1 || true
 fi
 
-supervisorctl start medo-s3-offloader medo-filebrowser >>"${LOG_DIR}/on_start.log" 2>&1 || true
+if [[ ${#enabled_programs[@]} -gt 0 ]]; then
+  supervisorctl start "${enabled_programs[@]}" >>"${LOG_DIR}/on_start.log" 2>&1 || true
+fi
 if [[ "${AI_TOOLKIT_AUTOSTART}" == "true" ]]; then
   supervisorctl start medo-ai-toolkit-server medo-ai-toolkit-worker >>"${LOG_DIR}/on_start.log" 2>&1 || true
 fi
