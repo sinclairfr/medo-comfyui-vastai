@@ -288,9 +288,9 @@ if command -v filebrowser >/dev/null 2>&1; then
   if [[ ! -f "${SERVICES_DIR}/filebrowser.db" ]]; then
     log "Initializing FileBrowser DB"
     filebrowser config init -d "${SERVICES_DIR}/filebrowser.db" >>"${LOG_DIR}/on_start.log" 2>&1 || true
-    # config init may already create an admin user; try add first, then update to ensure admin/admin.
-    filebrowser users add admin admin --perm.admin -d "${SERVICES_DIR}/filebrowser.db" >>"${LOG_DIR}/on_start.log" 2>&1 || \
-      filebrowser users update admin --password adminadmin12 -d "${SERVICES_DIR}/filebrowser.db" >>"${LOG_DIR}/on_start.log" 2>&1 || true
+    # config init may already create an admin user; ensure password is always adminadmin12.
+    filebrowser users add admin adminadmin12 --perm.admin -d "${SERVICES_DIR}/filebrowser.db" >>"${LOG_DIR}/on_start.log" 2>&1 || true
+    filebrowser users update admin --password adminadmin12 -d "${SERVICES_DIR}/filebrowser.db" >>"${LOG_DIR}/on_start.log" 2>&1 || true
     log "FileBrowser default credentials: admin / adminadmin12"
   fi
 fi
