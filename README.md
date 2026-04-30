@@ -73,6 +73,19 @@ bash <(curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vast
 
 Priority rule: `S3O_*` overrides fallback variables when both are set.
 
+## FileBrowser
+
+FileBrowser runs on port `8081` and lets you browse, upload, and manage files in `/workspace` from your browser.
+
+| Setting | Value |
+|---|---|
+| Default URL | `http://<instance-ip>:8081` |
+| Username | `admin` |
+| Password | `admin` |
+
+The database is created at `/workspace/services/filebrowser.db` on first boot and is reused across restarts.
+Change your password after first login via **Settings → User Management**.
+
 ## Ports to expose in Vast
 
 Expose only the ports you need from the container:
@@ -92,7 +105,8 @@ Expose only the ports you need from the container:
   - `/workspace/services`
 - Clones/updates `comfyui_S3_offloader` into `/workspace/comfyui_S3_offloader`.
 - Clones/updates `ai-toolkit` only when `RUN_AI_TOOLKIT=true`.
-- Initializes FileBrowser DB under `/workspace/services/filebrowser.db` (idempotent).
+- Initializes FileBrowser DB under `/workspace/services/filebrowser.db` (idempotent, only on first run).
+  Default credentials: **admin / admin**.
 - Renders Supervisor program configs and starts/updates services with `supervisorctl`.
 - Prints internal service summary.
 - If `/run/http_ports` exists, appends Medo services so they can appear in the native portal links list.
