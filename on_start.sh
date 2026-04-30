@@ -106,8 +106,14 @@ render_supervisor_program() {
 ensure_s3_offloader_deps() {
   if [[ -f "${S3_DIR}/requirements.txt" ]]; then
     log "Installing S3 offloader Python dependencies"
-    "${PYTHON_BIN}" -m pip install -r "${S3_DIR}/requirements.txt" >>"${LOG_DIR}/on_start.log" 2>&1 || \
-      log "WARN: failed to install S3 offloader dependencies"
+    if ! "${PYTHON_BIN}" -m pip install -r "${S3_DIR}/requirements.txt" >>"${LOG_DIR}/on_start.log" 2>&1; then
+      log "WARN: standard pip install failed; retrying with system-package override flags"
+      "${PYTHON_BIN}" -m pip install \
+        --break-system-packages \
+        --ignore-installed \
+        -r "${S3_DIR}/requirements.txt" >>"${LOG_DIR}/on_start.log" 2>&1 || \
+        log "WARN: failed to install S3 offloader dependencies even after fallback"
+    fi
   fi
 }
 
