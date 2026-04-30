@@ -14,23 +14,30 @@ This setup keeps the native AI-Dock/Vast portal untouched and adds Medo services
 
 ### 1) Startup command (important)
 
-Use a **Bash** wrapper so process substitution `<(...)` works reliably:
+Use only:
 
 ```bash
-bash -lc 'entrypoint.sh && bash <(curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/on_start.sh)'
+bash -lc 'entrypoint.sh'
 ```
 
-Why: in some Vast.ai templates the startup command is executed with `/bin/sh`, and `/bin/sh` does **not** support process substitution.
+Reason: [`entrypoint.sh`](./entrypoint.sh) uses `exec`, so chaining with `&&` (or `;`) after it is not reliable on `vastai/comfy` boot flow.
 
-If you still see startup timing issues, use:
+### 2) BOOT_SCRIPT environment variable (required)
+
+Set `BOOT_SCRIPT` in your Vast template to:
 
 ```bash
-bash -lc 'entrypoint.sh; bash <(curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/on_start.sh)'
+https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/boot_vast.sh
 ```
 
-(`;` runs Medo setup even if `entrypoint.sh` exits non-zero.)
+[`boot_vast.sh`](./boot_vast.sh) runs the default Vast boot process and then executes [`on_start.sh`](./on_start.sh) safely.
 
-### 2) On-start script field
+Optional env overrides:
+
+- `MEDO_ON_START_URL` (default points to this repo's `on_start.sh`)
+- `ON_START_WAIT_SUPERVISORD_SECONDS` (default `120`)
+
+### 3) On-start script field
 
 If you prefer using Vast's **On-start Script** field directly:
 
