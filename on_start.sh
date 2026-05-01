@@ -19,6 +19,7 @@ FILEBROWSER_PORT="${FILEBROWSER_PORT:-8081}"
 AI_TOOLKIT_PORT="${AI_TOOLKIT_PORT:-8675}"
 RUN_AI_TOOLKIT="${RUN_AI_TOOLKIT:-false}"
 PORTAIL_CONFIG="${PORTAIL_CONFIG:-${PORTAL_CONFIG:-}}"
+MEDO_EDIT_PORTAL_YAML="${MEDO_EDIT_PORTAL_YAML:-false}"
 
 S3_DIR="${WORKSPACE}/comfyui_S3_offloader"
 S3_REPO="https://github.com/sinclairfr/comfyui_S3_offloader"
@@ -279,10 +280,13 @@ log "Preparing repositories"
 git_sync_repo "${S3_REPO}" "${S3_DIR}" || log "WARN: unable to sync comfyui_S3_offloader"
 ensure_s3_offloader_settings
 ensure_s3_offloader_deps
-if [[ -n "${PORTAIL_CONFIG}" ]]; then
-  log "PORTAIL_CONFIG/PORTAL_CONFIG is set; skipping portal.yaml edits"
-else
+if [[ "${MEDO_EDIT_PORTAL_YAML,,}" == "true" ]]; then
+  log "MEDO_EDIT_PORTAL_YAML=true; applying portal.yaml edits"
   ensure_portal_apps
+elif [[ -n "${PORTAIL_CONFIG}" ]]; then
+  log "PORTAL_CONFIG detected; skipping portal.yaml edits (Vast portal managed by env)"
+else
+  log "Skipping portal.yaml edits by default (set MEDO_EDIT_PORTAL_YAML=true to enable)"
 fi
 ensure_filebrowser_binary || true
 

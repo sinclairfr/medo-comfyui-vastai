@@ -54,6 +54,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vast
 | `FILEBROWSER_PORT` | `8081` | Internal port for FileBrowser. |
 | `AI_TOOLKIT_PORT` | `8675` | Internal port for ai-toolkit web service. |
 | `WORKSPACE` | `/workspace` | Persistent workspace root. |
+| `MEDO_EDIT_PORTAL_YAML` | `false` | If `true`, force edits to `/etc/portal.yaml` (not recommended when using Vast `PORTAL_CONFIG`). |
 
 
 ## S3 Offloader environment variables (Vast template)
@@ -73,6 +74,13 @@ bash <(curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vast
 | `S3O_INCLUDE_PERSONAL_STUFF` | `INCLUDE_PERSONAL_STUFF` | `true/false`, include personal paths backup. |
 
 Priority rule: `S3O_*` overrides fallback variables when both are set.
+
+## Vast Instance Portal (`PORTAL_CONFIG`)
+
+If you define Vast's `PORTAL_CONFIG` env var (as documented by Vast), this repo now **does not edit** `/etc/portal.yaml` by default.
+
+- Recommended: manage portal links via `PORTAL_CONFIG` only.
+- Optional legacy behavior: set `MEDO_EDIT_PORTAL_YAML=true` to re-enable `/etc/portal.yaml` edits.
 
 ## FileBrowser
 
