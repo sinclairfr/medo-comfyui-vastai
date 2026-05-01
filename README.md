@@ -65,6 +65,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vast
 | `S3O_MODELS_ROOT` | `MODELS_ROOT` | ComfyUI models directory path. |
 | `S3O_S3_BUCKET` | `S3_BUCKET` | S3 bucket name. |
 | `S3O_S3_PREFIX` | `S3_PREFIX` | S3 prefix/path inside bucket (default: `models-offload/`). |
+| `S3O_R2_URL` | `R2_URL` | Cloudflare R2 endpoint URL (optional). |
 | `S3O_AWS_PROFILE` | `AWS_PROFILE` | AWS profile name (optional). |
 | `S3O_AWS_ACCESS_KEY_ID` | `AWS_ACCESS_KEY_ID` | AWS access key (optional if profile/role used). |
 | `S3O_AWS_SECRET_ACCESS_KEY` | `AWS_SECRET_ACCESS_KEY` | AWS secret key (optional if profile/role used). |

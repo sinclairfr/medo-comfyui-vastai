@@ -18,6 +18,7 @@ S3_OFFLOADER_PORT="${S3_OFFLOADER_PORT:-5055}"
 FILEBROWSER_PORT="${FILEBROWSER_PORT:-8081}"
 AI_TOOLKIT_PORT="${AI_TOOLKIT_PORT:-8675}"
 RUN_AI_TOOLKIT="${RUN_AI_TOOLKIT:-false}"
+PORTAIL_CONFIG="${PORTAIL_CONFIG:-${PORTAL_CONFIG:-}}"
 
 S3_DIR="${WORKSPACE}/comfyui_S3_offloader"
 S3_REPO="https://github.com/sinclairfr/comfyui_S3_offloader"
@@ -125,6 +126,7 @@ ensure_s3_offloader_settings() {
   local models_root="${S3O_MODELS_ROOT:-${MODELS_ROOT:-}}"
   local s3_bucket="${S3O_S3_BUCKET:-${S3_BUCKET:-}}"
   local s3_prefix="${S3O_S3_PREFIX:-${S3_PREFIX:-models-offload/}}"
+  local r2_url="${S3O_R2_URL:-${R2_URL:-}}"
   local aws_profile="${S3O_AWS_PROFILE:-${AWS_PROFILE:-}}"
   local aws_access_key_id="${S3O_AWS_ACCESS_KEY_ID:-${AWS_ACCESS_KEY_ID:-}}"
   local aws_secret_access_key="${S3O_AWS_SECRET_ACCESS_KEY:-${AWS_SECRET_ACCESS_KEY:-}}"
@@ -148,6 +150,7 @@ ensure_s3_offloader_settings() {
   export S3_MODELS_ROOT="${models_root}"
   export S3_BUCKET_VALUE="${s3_bucket}"
   export S3_PREFIX_VALUE="${s3_prefix}"
+  export S3_R2_URL_VALUE="${r2_url}"
   export AWS_PROFILE_VALUE="${aws_profile}"
   export AWS_ACCESS_KEY_ID_VALUE="${aws_access_key_id}"
   export AWS_SECRET_ACCESS_KEY_VALUE="${aws_secret_access_key}"
@@ -179,6 +182,7 @@ settings = dict(raw)
 settings["models_root"] = os.environ["S3_MODELS_ROOT"]
 settings["s3_bucket"] = os.environ["S3_BUCKET_VALUE"]
 settings["s3_prefix"] = os.environ["S3_PREFIX_VALUE"]
+settings["r2_url"] = (os.environ.get("S3_R2_URL_VALUE", "").strip() or None)
 settings["aws_profile"] = (os.environ.get("AWS_PROFILE_VALUE", "").strip() or None)
 settings["aws_access_key_id"] = (os.environ.get("AWS_ACCESS_KEY_ID_VALUE", "").strip() or None)
 settings["aws_secret_access_key"] = (os.environ.get("AWS_SECRET_ACCESS_KEY_VALUE", "").strip() or None)
@@ -198,6 +202,7 @@ print(f"settings updated: {settings_path}")
 print(f"models_root={settings['models_root']}")
 print(f"s3_bucket={settings['s3_bucket']}")
 print(f"s3_prefix={settings['s3_prefix']}")
+print(f"r2_url={settings['r2_url']}")
 PY
 }
 
@@ -274,7 +279,11 @@ log "Preparing repositories"
 git_sync_repo "${S3_REPO}" "${S3_DIR}" || log "WARN: unable to sync comfyui_S3_offloader"
 ensure_s3_offloader_settings
 ensure_s3_offloader_deps
-ensure_portal_apps
+if [[ -n "${PORTAIL_CONFIG}" ]]; then
+  log "PORTAIL_CONFIG/PORTAL_CONFIG is set; skipping portal.yaml edits"
+else
+  ensure_portal_apps
+fi
 ensure_filebrowser_binary || true
 
 AI_TOOLKIT_AUTOSTART="false"
