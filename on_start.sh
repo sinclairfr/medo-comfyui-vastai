@@ -27,9 +27,117 @@ AI_TOOLKIT_DIR="${WORKSPACE}/ai-toolkit"
 AI_TOOLKIT_REPO="https://github.com/ostris/ai-toolkit"
 PYTHON_BIN="${PYTHON_BIN:-$(command -v python3)}"
 
+# State sync config
+S3_STATE_PREFIX="${S3_STATE_PREFIX:-comfyui-state}"
+COMFYUI_DIR="${WORKSPACE}/ComfyUI"
+R2_ENDPOINT="${S3O_R2_URL:-${R2_URL:-}}"
+STATE_BUCKET="${S3O_S3_BUCKET:-${S3_BUCKET:-}}"
+
 mkdir -p "${WORKSPACE}" "${LOG_DIR}" "${SERVICES_DIR}" "${SERVICES_DIR}/filebrowser"
 
 log() { echo "[medo] $*" | tee -a "${LOG_DIR}/on_start.log"; }
+
+# ---------------------------------------------------------------------------
+# ComfyUI state sync — cm-cli snapshot + user/ + extra_model_paths.yaml
+# ---------------------------------------------------------------------------
+
+restore_comfyui_state() {
+  if [[ -z "${STATE_BUCKET}" ]]; then
+    log "WARN: no S3 bucket configured, skipping state restore"
+    return 0
+  fi
+  if [[ -z "${R2_ENDPOINT}" ]]; then
+    log "WARN: no R2_URL configured, skipping state restore"
+    return 0
+  fi
+
+  log "Restoring ComfyUI state from R2 (${STATE_BUCKET}/${S3_STATE_PREFIX}/)..."
+
+  # 1. Restore user/ — contains snapshot json, settings, workflows, templates
+  aws s3 sync \
+    "s3://${STATE_BUCKET}/${S3_STATE_PREFIX}/user/" \
+    "${COMFYUI_DIR}/user/" \
+    --endpoint-url "${R2_ENDPOINT}" \
+    --no-progress -q \
+    2>>"${LOG_DIR}/on_start.log" || \
+    log "WARN: failed to restore user/"
+
+  # 2. extra_model_paths.yaml
+  aws s3 cp \
+    "s3://${STATE_BUCKET}/${S3_STATE_PREFIX}/extra_model_paths.yaml" \
+    "${COMFYUI_DIR}/extra_model_paths.yaml" \
+    --endpoint-url "${R2_ENDPOINT}" -q \
+    2>>"${LOG_DIR}/on_start.log" || true
+
+  # 3. Restore custom nodes via cm-cli snapshot restore
+  #    The snapshot json lives inside user/default/ComfyUI-Manager/snapshots/
+  #    which was just synced above — so we just need to trigger the restore
+  local cm_cli="${COMFYUI_DIR}/custom_nodes/ComfyUI-Manager/cm-cli.py"
+  local snapshot_dir="${COMFYUI_DIR}/user/default/ComfyUI-Manager/snapshots"
+
+  if [[ -f "${cm_cli}" ]] && [[ -d "${snapshot_dir}" ]]; then
+    local latest_snapshot
+    latest_snapshot=$(ls -t "${snapshot_dir}"/*.json 2>/dev/null | head -1 || true)
+    if [[ -n "${latest_snapshot}" ]]; then
+      log "Restoring custom nodes from snapshot: $(basename "${latest_snapshot}")"
+      COMFYUI_PATH="${COMFYUI_DIR}" "${PYTHON_BIN}" "${cm_cli}" restore-snapshot "${latest_snapshot}" \
+        >>"${LOG_DIR}/on_start.log" 2>&1 || \
+        log "WARN: cm-cli restore-snapshot failed (non-blocking)"
+    else
+      log "No snapshot file found in ${snapshot_dir}, skipping node restore"
+    fi
+  else
+    log "cm-cli or snapshot dir not found, skipping node restore"
+  fi
+
+  log "State restore done."
+}
+
+backup_comfyui_state() {
+  if [[ -z "${STATE_BUCKET}" ]] || [[ -z "${R2_ENDPOINT}" ]]; then
+    return 0
+  fi
+
+  log "Backing up ComfyUI state to R2 (${STATE_BUCKET}/${S3_STATE_PREFIX}/)..."
+
+  # 1. Save snapshot via cm-cli — writes json into user/default/ComfyUI-Manager/snapshots/
+  local cm_cli="${COMFYUI_DIR}/custom_nodes/ComfyUI-Manager/cm-cli.py"
+  if [[ -f "${cm_cli}" ]]; then
+    COMFYUI_PATH="${COMFYUI_DIR}" "${PYTHON_BIN}" "${cm_cli}" save-snapshot \
+      >>"${LOG_DIR}/on_start.log" 2>&1 || \
+      log "WARN: cm-cli save-snapshot failed"
+    log "cm-cli snapshot saved"
+  else
+    log "WARN: cm-cli not found, skipping snapshot save"
+  fi
+
+  # 2. Sync user/ — snapshot json is now inside, along with settings/workflows/templates
+  aws s3 sync \
+    "${COMFYUI_DIR}/user/" \
+    "s3://${STATE_BUCKET}/${S3_STATE_PREFIX}/user/" \
+    --endpoint-url "${R2_ENDPOINT}" \
+    --no-progress -q \
+    --exclude "*.pyc" \
+    --exclude "*/__pycache__/*" \
+    2>>"${LOG_DIR}/on_start.log" || \
+    log "WARN: failed to backup user/"
+
+  # 3. extra_model_paths.yaml
+  if [[ -f "${COMFYUI_DIR}/extra_model_paths.yaml" ]]; then
+    aws s3 cp \
+      "${COMFYUI_DIR}/extra_model_paths.yaml" \
+      "s3://${STATE_BUCKET}/${S3_STATE_PREFIX}/extra_model_paths.yaml" \
+      --endpoint-url "${R2_ENDPOINT}" -q \
+      2>>"${LOG_DIR}/on_start.log" || true
+  fi
+
+  log "State backup done."
+}
+
+# Backup on container death — fires on EXIT, SIGTERM, SIGINT
+trap backup_comfyui_state EXIT SIGTERM SIGINT
+
+# ---------------------------------------------------------------------------
 
 register_http_port() {
   local port="$1" name="$2"
@@ -73,7 +181,6 @@ detect_supervisor_templates_dir() {
     fi
   done
 
-  # Last-resort: bootstrap from upstream repo templates.
   local tmp_dir="/tmp/medo-comfyui-vastai"
   if [[ ! -d "${tmp_dir}/.git" ]]; then
     log "Template directory missing. Cloning upstream repo for templates."
@@ -123,7 +230,6 @@ ensure_s3_offloader_settings() {
   local settings_file="${S3_DIR}/settings.json"
   log "Applying S3 offloader settings for this VM"
 
-  # Prefer explicit env, then common defaults.
   local models_root="${S3O_MODELS_ROOT:-${MODELS_ROOT:-}}"
   local s3_bucket="${S3O_S3_BUCKET:-${S3_BUCKET:-}}"
   local s3_prefix="${S3O_S3_PREFIX:-${S3_PREFIX:-models-offload/}}"
@@ -134,7 +240,6 @@ ensure_s3_offloader_settings() {
   local aws_session_token="${S3O_AWS_SESSION_TOKEN:-${AWS_SESSION_TOKEN:-}}"
   local include_personal_stuff="${S3O_INCLUDE_PERSONAL_STUFF:-${INCLUDE_PERSONAL_STUFF:-false}}"
 
-  # VM-aware models directory auto-detection if not explicitly provided.
   if [[ -z "${models_root}" ]]; then
     if [[ -d "${WORKSPACE}/ComfyUI/models" ]]; then
       models_root="${WORKSPACE}/ComfyUI/models"
@@ -190,7 +295,6 @@ settings["aws_secret_access_key"] = (os.environ.get("AWS_SECRET_ACCESS_KEY_VALUE
 settings["aws_session_token"] = (os.environ.get("AWS_SESSION_TOKEN_VALUE", "").strip() or None)
 settings["include_personal_stuff"] = _to_bool(os.environ.get("INCLUDE_PERSONAL_STUFF_VALUE", "false"))
 
-# Keep existing personal_paths if present, otherwise provide sensible VM defaults.
 if not isinstance(settings.get("personal_paths"), list) or not settings.get("personal_paths"):
     settings["personal_paths"] = [
         f"{workspace}/ComfyUI/custom_nodes",
@@ -276,10 +380,19 @@ ensure_filebrowser_binary() {
   return 0
 }
 
+# ---------------------------------------------------------------------------
+# Main sequence
+# ---------------------------------------------------------------------------
+
 log "Preparing repositories"
 git_sync_repo "${S3_REPO}" "${S3_DIR}" || log "WARN: unable to sync comfyui_S3_offloader"
+
+log "Restoring ComfyUI state"
+restore_comfyui_state
+
 ensure_s3_offloader_settings
 ensure_s3_offloader_deps
+
 if [[ "${MEDO_EDIT_PORTAL_YAML,,}" == "true" ]]; then
   log "MEDO_EDIT_PORTAL_YAML=true; applying portal.yaml edits"
   ensure_portal_apps
@@ -288,6 +401,7 @@ elif [[ -n "${PORTAIL_CONFIG}" ]]; then
 else
   log "Skipping portal.yaml edits by default (set MEDO_EDIT_PORTAL_YAML=true to enable)"
 fi
+
 ensure_filebrowser_binary || true
 
 AI_TOOLKIT_AUTOSTART="false"
@@ -296,12 +410,10 @@ if [[ "${RUN_AI_TOOLKIT,,}" == "true" ]]; then
   git_sync_repo "${AI_TOOLKIT_REPO}" "${AI_TOOLKIT_DIR}" || log "WARN: unable to sync ai-toolkit"
 fi
 
-# Initialize filebrowser DB idempotently.
 if command -v filebrowser >/dev/null 2>&1; then
   if [[ ! -f "${SERVICES_DIR}/filebrowser.db" ]]; then
     log "Initializing FileBrowser DB"
     filebrowser config init -d "${SERVICES_DIR}/filebrowser.db" >>"${LOG_DIR}/on_start.log" 2>&1 || true
-    # config init may already create an admin user; ensure password is always adminadmin12.
     filebrowser users add admin adminadmin12 --perm.admin -d "${SERVICES_DIR}/filebrowser.db" >>"${LOG_DIR}/on_start.log" 2>&1 || true
     filebrowser users update admin --password adminadmin12 -d "${SERVICES_DIR}/filebrowser.db" >>"${LOG_DIR}/on_start.log" 2>&1 || true
     log "FileBrowser default credentials: admin / adminadmin12"
@@ -317,12 +429,10 @@ mkdir -p "${SUPERVISOR_DST_DIR}"
 enabled_programs=("medo-s3-offloader")
 
 render_supervisor_program "${SUPERVISOR_TPL_DIR}/medo-s3-offloader.conf" "${SUPERVISOR_DST_DIR}/medo-s3-offloader.conf"
-# Ensure supervisor uses the same Python interpreter used for dependency install.
 sed -i "s|^command=python3 app.py --port |command=${PYTHON_BIN} app.py --port |" "${SUPERVISOR_DST_DIR}/medo-s3-offloader.conf"
 
 if command -v filebrowser >/dev/null 2>&1; then
   render_supervisor_program "${SUPERVISOR_TPL_DIR}/medo-filebrowser.conf" "${SUPERVISOR_DST_DIR}/medo-filebrowser.conf"
-  # Ensure FileBrowser listens on all interfaces so Vast mapped ports can reach it.
   sed -i 's|^command=filebrowser |command=filebrowser -a 0.0.0.0 |' "${SUPERVISOR_DST_DIR}/medo-filebrowser.conf"
   enabled_programs+=("medo-filebrowser")
 else
@@ -352,7 +462,6 @@ if [[ "${AI_TOOLKIT_AUTOSTART}" == "true" ]]; then
   supervisorctl start medo-ai-toolkit-server medo-ai-toolkit-worker >>"${LOG_DIR}/on_start.log" 2>&1 || true
 fi
 
-# Expose service hints to AI-Dock portal if /run/http_ports is managed by the base image.
 register_http_port "${S3_OFFLOADER_PORT}" "Medo S3 Offloader"
 register_http_port "${FILEBROWSER_PORT}" "Medo FileBrowser"
 if [[ "${AI_TOOLKIT_AUTOSTART}" == "true" ]]; then
