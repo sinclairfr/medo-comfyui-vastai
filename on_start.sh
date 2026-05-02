@@ -27,115 +27,11 @@ AI_TOOLKIT_DIR="${WORKSPACE}/ai-toolkit"
 AI_TOOLKIT_REPO="https://github.com/ostris/ai-toolkit"
 PYTHON_BIN="${PYTHON_BIN:-$(command -v python3)}"
 
-# State sync config
-S3_STATE_PREFIX="${S3_STATE_PREFIX:-comfyui-state}"
 COMFYUI_DIR="${WORKSPACE}/ComfyUI"
-R2_ENDPOINT="${S3O_R2_URL:-${R2_URL:-}}"
-STATE_BUCKET="${S3O_S3_BUCKET:-${S3_BUCKET:-}}"
 
 mkdir -p "${WORKSPACE}" "${LOG_DIR}" "${SERVICES_DIR}" "${SERVICES_DIR}/filebrowser"
 
 log() { echo "[medo] $*" | tee -a "${LOG_DIR}/on_start.log"; }
-
-# ---------------------------------------------------------------------------
-# ComfyUI state sync — cm-cli snapshot + user/ + extra_model_paths.yaml
-# ---------------------------------------------------------------------------
-
-restore_comfyui_state() {
-  if [[ -z "${STATE_BUCKET}" ]]; then
-    log "WARN: no S3 bucket configured, skipping state restore"
-    return 0
-  fi
-  if [[ -z "${R2_ENDPOINT}" ]]; then
-    log "WARN: no R2_URL configured, skipping state restore"
-    return 0
-  fi
-
-  log "Restoring ComfyUI state from R2 (${STATE_BUCKET}/${S3_STATE_PREFIX}/)..."
-
-  # 1. Restore user/ — contains snapshot json, settings, workflows, templates
-  aws s3 sync \
-    "s3://${STATE_BUCKET}/${S3_STATE_PREFIX}/user/" \
-    "${COMFYUI_DIR}/user/" \
-    --endpoint-url "${R2_ENDPOINT}" \
-    --no-progress -q \
-    2>>"${LOG_DIR}/on_start.log" || \
-    log "WARN: failed to restore user/"
-
-  # 2. extra_model_paths.yaml
-  aws s3 cp \
-    "s3://${STATE_BUCKET}/${S3_STATE_PREFIX}/extra_model_paths.yaml" \
-    "${COMFYUI_DIR}/extra_model_paths.yaml" \
-    --endpoint-url "${R2_ENDPOINT}" -q \
-    2>>"${LOG_DIR}/on_start.log" || true
-
-  # 3. Restore custom nodes via cm-cli snapshot restore
-  #    The snapshot json lives inside user/default/ComfyUI-Manager/snapshots/
-  #    which was just synced above — so we just need to trigger the restore
-  local cm_cli="${COMFYUI_DIR}/custom_nodes/ComfyUI-Manager/cm-cli.py"
-  local snapshot_dir="${COMFYUI_DIR}/user/default/ComfyUI-Manager/snapshots"
-
-  if [[ -f "${cm_cli}" ]] && [[ -d "${snapshot_dir}" ]]; then
-    local latest_snapshot
-    latest_snapshot=$(ls -t "${snapshot_dir}"/*.json 2>/dev/null | head -1 || true)
-    if [[ -n "${latest_snapshot}" ]]; then
-      log "Restoring custom nodes from snapshot: $(basename "${latest_snapshot}")"
-      COMFYUI_PATH="${COMFYUI_DIR}" "${PYTHON_BIN}" "${cm_cli}" restore-snapshot "${latest_snapshot}" \
-        >>"${LOG_DIR}/on_start.log" 2>&1 || \
-        log "WARN: cm-cli restore-snapshot failed (non-blocking)"
-    else
-      log "No snapshot file found in ${snapshot_dir}, skipping node restore"
-    fi
-  else
-    log "cm-cli or snapshot dir not found, skipping node restore"
-  fi
-
-  log "State restore done."
-}
-
-backup_comfyui_state() {
-  if [[ -z "${STATE_BUCKET}" ]] || [[ -z "${R2_ENDPOINT}" ]]; then
-    return 0
-  fi
-
-  log "Backing up ComfyUI state to R2 (${STATE_BUCKET}/${S3_STATE_PREFIX}/)..."
-
-  # 1. Save snapshot via cm-cli — writes json into user/default/ComfyUI-Manager/snapshots/
-  local cm_cli="${COMFYUI_DIR}/custom_nodes/ComfyUI-Manager/cm-cli.py"
-  if [[ -f "${cm_cli}" ]]; then
-    COMFYUI_PATH="${COMFYUI_DIR}" "${PYTHON_BIN}" "${cm_cli}" save-snapshot \
-      >>"${LOG_DIR}/on_start.log" 2>&1 || \
-      log "WARN: cm-cli save-snapshot failed"
-    log "cm-cli snapshot saved"
-  else
-    log "WARN: cm-cli not found, skipping snapshot save"
-  fi
-
-  # 2. Sync user/ — snapshot json is now inside, along with settings/workflows/templates
-  aws s3 sync \
-    "${COMFYUI_DIR}/user/" \
-    "s3://${STATE_BUCKET}/${S3_STATE_PREFIX}/user/" \
-    --endpoint-url "${R2_ENDPOINT}" \
-    --no-progress -q \
-    --exclude "*.pyc" \
-    --exclude "*/__pycache__/*" \
-    2>>"${LOG_DIR}/on_start.log" || \
-    log "WARN: failed to backup user/"
-
-  # 3. extra_model_paths.yaml
-  if [[ -f "${COMFYUI_DIR}/extra_model_paths.yaml" ]]; then
-    aws s3 cp \
-      "${COMFYUI_DIR}/extra_model_paths.yaml" \
-      "s3://${STATE_BUCKET}/${S3_STATE_PREFIX}/extra_model_paths.yaml" \
-      --endpoint-url "${R2_ENDPOINT}" -q \
-      2>>"${LOG_DIR}/on_start.log" || true
-  fi
-
-  log "State backup done."
-}
-
-# Backup on container death — fires on EXIT, SIGTERM, SIGINT
-trap backup_comfyui_state EXIT SIGTERM SIGINT
 
 # ---------------------------------------------------------------------------
 
@@ -386,9 +282,6 @@ ensure_filebrowser_binary() {
 
 log "Preparing repositories"
 git_sync_repo "${S3_REPO}" "${S3_DIR}" || log "WARN: unable to sync comfyui_S3_offloader"
-
-log "Restoring ComfyUI state"
-restore_comfyui_state
 
 ensure_s3_offloader_settings
 ensure_s3_offloader_deps
