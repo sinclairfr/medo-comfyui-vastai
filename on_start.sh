@@ -30,6 +30,8 @@ PYTHON_BIN="${PYTHON_BIN:-$(command -v python3)}"
 COMFYUI_DIR="${WORKSPACE}/ComfyUI"
 CUSTOM_NODES_CONFIG_FILE="${CUSTOM_NODES_CONFIG_FILE:-${COMFYUI_DIR}/custom_nodes_list.json}"
 ROOT_CUSTOM_NODES_CONFIG_FILE="${WORKSPACE}/custom_nodes_list.json"
+BAKED_CUSTOM_NODES_CONFIG_FILE="/opt/medo/custom_nodes_list.json"
+CUSTOM_NODES_LIST_URL="${CUSTOM_NODES_LIST_URL:-https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/custom_nodes_list.json}"
 
 mkdir -p "${WORKSPACE}" "${LOG_DIR}" "${SERVICES_DIR}" "${SERVICES_DIR}/filebrowser"
 
@@ -57,6 +59,41 @@ git_sync_repo() {
     git -C "${target_dir}" fetch --depth 1 origin >>"${LOG_DIR}/on_start.log" 2>&1 || return 1
     git -C "${target_dir}" reset --hard origin/HEAD >>"${LOG_DIR}/on_start.log" 2>&1 || return 1
   fi
+}
+
+fetch_custom_nodes_config() {
+  local dst="${ROOT_CUSTOM_NODES_CONFIG_FILE}"
+
+  if [[ -f "${CUSTOM_NODES_CONFIG_FILE}" ]] || [[ -f "${dst}" ]]; then
+    log "Custom nodes config already present locally"
+    return 0
+  fi
+
+  if [[ -f "${BAKED_CUSTOM_NODES_CONFIG_FILE}" ]]; then
+    log "Using baked-in custom nodes config: ${BAKED_CUSTOM_NODES_CONFIG_FILE}"
+    cp "${BAKED_CUSTOM_NODES_CONFIG_FILE}" "${dst}"
+    return 0
+  fi
+
+  if [[ -n "${CUSTOM_NODES_LIST_URL}" ]]; then
+    log "Downloading custom nodes config from ${CUSTOM_NODES_LIST_URL}"
+    if curl -fsSL "${CUSTOM_NODES_LIST_URL}" -o "${dst}" >>"${LOG_DIR}/on_start.log" 2>&1; then
+      log "Downloaded custom nodes config to ${dst}"
+    else
+      log "WARN: failed to download custom nodes config from ${CUSTOM_NODES_LIST_URL}"
+    fi
+  fi
+}
+
+restart_comfyui_after_nodes() {
+  for name in comfyui comfy comfy-ui; do
+    if supervisorctl status "${name}" >/dev/null 2>&1; then
+      log "Restarting ${name} via supervisord after custom node installation"
+      supervisorctl restart "${name}" >>"${LOG_DIR}/on_start.log" 2>&1 || true
+      return 0
+    fi
+  done
+  log "ComfyUI not found in supervisord; no restart needed"
 }
 
 detect_supervisor_templates_dir() {
@@ -439,7 +476,9 @@ git_sync_repo "${S3_REPO}" "${S3_DIR}" || log "WARN: unable to sync comfyui_S3_o
 
 ensure_s3_offloader_settings
 ensure_s3_offloader_deps
+fetch_custom_nodes_config
 install_custom_nodes_from_config
+restart_comfyui_after_nodes
 
 if [[ "${MEDO_EDIT_PORTAL_YAML,,}" == "true" ]]; then
   log "MEDO_EDIT_PORTAL_YAML=true; applying portal.yaml edits"
