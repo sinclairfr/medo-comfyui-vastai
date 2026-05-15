@@ -27,6 +27,7 @@ RUN curl -fsSL https://raw.githubusercontent.com/filebrowser/get/master/get.sh |
 COPY supervisord/supervisord.conf /etc/supervisor/supervisord.conf
 COPY supervisord/programs/*.conf /opt/medo/supervisor-templates/
 COPY scripts/discover_ai_dock_portal.sh /opt/medo/scripts/discover_ai_dock_portal.sh
+COPY custom_nodes_list.json /opt/medo/custom_nodes_list.json
 
 RUN chmod +x /opt/medo/scripts/discover_ai_dock_portal.sh
 
