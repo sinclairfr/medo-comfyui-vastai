@@ -31,7 +31,7 @@ COMFYUI_DIR="${WORKSPACE}/ComfyUI"
 CUSTOM_NODES_CONFIG_FILE="${CUSTOM_NODES_CONFIG_FILE:-${COMFYUI_DIR}/custom_nodes_list.json}"
 ROOT_CUSTOM_NODES_CONFIG_FILE="${WORKSPACE}/custom_nodes_list.json"
 BAKED_CUSTOM_NODES_CONFIG_FILE="/opt/medo/custom_nodes_list.json"
-CUSTOM_NODES_LIST_URL="${CUSTOM_NODES_LIST_URL:-https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/main/custom_nodes_list.json}"
+CUSTOM_NODES_LIST_URL="${CUSTOM_NODES_LIST_URL:-https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vastai/refs/heads/main/custom_nodes_list.json}"
 
 mkdir -p "${WORKSPACE}" "${LOG_DIR}" "${SERVICES_DIR}" "${SERVICES_DIR}/filebrowser"
 
