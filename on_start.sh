@@ -29,6 +29,7 @@ PYTHON_BIN="${PYTHON_BIN:-$(command -v python3)}"
 
 COMFYUI_DIR="${WORKSPACE}/ComfyUI"
 CUSTOM_NODES_CONFIG_FILE="${CUSTOM_NODES_CONFIG_FILE:-${COMFYUI_DIR}/custom_nodes_list.json}"
+ROOT_CUSTOM_NODES_CONFIG_FILE="${WORKSPACE}/custom_nodes_list.json"
 
 mkdir -p "${WORKSPACE}" "${LOG_DIR}" "${SERVICES_DIR}" "${SERVICES_DIR}/filebrowser"
 
@@ -287,8 +288,13 @@ install_custom_nodes_from_config() {
   fi
 
   if [[ ! -f "${config_file}" ]]; then
-    log "No custom nodes config found at ${config_file}; skipping"
-    return 0
+    if [[ -f "${ROOT_CUSTOM_NODES_CONFIG_FILE}" ]]; then
+      config_file="${ROOT_CUSTOM_NODES_CONFIG_FILE}"
+      log "Primary custom nodes config missing, using workspace fallback: ${config_file}"
+    else
+      log "No custom nodes config found at ${CUSTOM_NODES_CONFIG_FILE} or ${ROOT_CUSTOM_NODES_CONFIG_FILE}; skipping"
+      return 0
+    fi
   fi
 
   mkdir -p "${custom_nodes_dir}"
