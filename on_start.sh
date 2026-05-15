@@ -294,6 +294,7 @@ install_custom_nodes_from_config() {
   mkdir -p "${custom_nodes_dir}"
 
   log "Installing custom nodes from ${config_file}"
+  log "Custom nodes target directory: ${custom_nodes_dir}"
   export CUSTOM_NODES_CONFIG_FILE="${config_file}"
   export CUSTOM_NODES_DIR="${custom_nodes_dir}"
   export LOG_DIR
@@ -310,6 +311,10 @@ from pathlib import Path
 cfg_path = Path(os.environ["CUSTOM_NODES_CONFIG_FILE"])
 custom_nodes_dir = Path(os.environ["CUSTOM_NODES_DIR"])
 python_bin = os.environ.get("PYTHON_BIN", "python3")
+
+print(f"[custom-nodes] Config file: {cfg_path}")
+print(f"[custom-nodes] Destination directory: {custom_nodes_dir}")
+print(f"[custom-nodes] Python binary for pip installs: {python_bin}")
 
 def _safe_name_from_url(url: str) -> str:
     base = url.rstrip("/").split("/")[-1]
@@ -331,22 +336,40 @@ if not isinstance(payload, list):
     print(f"[custom-nodes] ERROR: expected a JSON array in {cfg_path}")
     sys.exit(1)
 
+print(f"[custom-nodes] Loaded {len(payload)} entries from config")
+
+processed = 0
+skipped = 0
+cloned = 0
+already_present = 0
+requirements_found = 0
+requirements_installed = 0
+requirements_failed = 0
+
 for i, entry in enumerate(payload, start=1):
     if not isinstance(entry, dict):
         print(f"[custom-nodes] WARN: entry #{i} is not an object, skipped")
+        skipped += 1
         continue
 
     url = (entry.get("url") or "").strip()
     if not url:
         print(f"[custom-nodes] WARN: entry #{i} missing 'url', skipped")
+        skipped += 1
         continue
 
     branch = (entry.get("branch") or "").strip() or None
     target_name = (entry.get("name") or "").strip() or _safe_name_from_url(url)
     target_dir = custom_nodes_dir / target_name
+    processed += 1
+
+    print(
+        f"[custom-nodes] Entry #{i}: url={url} | branch={branch or 'default'} | name={target_name}"
+    )
 
     if target_dir.exists():
         print(f"[custom-nodes] Exists, skip clone: {target_dir}")
+        already_present += 1
     else:
         cmd = ["git", "clone", "--depth", "1"]
         if branch:
@@ -355,15 +378,19 @@ for i, entry in enumerate(payload, start=1):
         try:
             _run(cmd)
             print(f"[custom-nodes] Cloned: {url} -> {target_dir}")
+            cloned += 1
         except subprocess.CalledProcessError as exc:
             print(f"[custom-nodes] ERROR: clone failed for {url}: {exc}")
+            requirements_failed += 1
             continue
 
     req = target_dir / "requirements.txt"
     if req.exists():
+        requirements_found += 1
         try:
             _run([python_bin, "-m", "pip", "install", "-r", str(req)])
             print(f"[custom-nodes] Installed requirements for {target_name}")
+            requirements_installed += 1
         except subprocess.CalledProcessError:
             print(f"[custom-nodes] WARN: pip install failed for {req}; retrying with override flags")
             try:
@@ -378,8 +405,22 @@ for i, entry in enumerate(payload, start=1):
                     str(req),
                 ])
                 print(f"[custom-nodes] Installed requirements for {target_name} (fallback)")
+                requirements_installed += 1
             except subprocess.CalledProcessError as exc:
                 print(f"[custom-nodes] WARN: failed installing requirements for {req}: {exc}")
+                requirements_failed += 1
+    else:
+        print(f"[custom-nodes] No requirements.txt for {target_name}, skipping pip install")
+
+print("[custom-nodes] Summary:")
+print(f"[custom-nodes]   total_entries={len(payload)}")
+print(f"[custom-nodes]   processed={processed}")
+print(f"[custom-nodes]   skipped={skipped}")
+print(f"[custom-nodes]   cloned={cloned}")
+print(f"[custom-nodes]   already_present={already_present}")
+print(f"[custom-nodes]   requirements_found={requirements_found}")
+print(f"[custom-nodes]   requirements_installed={requirements_installed}")
+print(f"[custom-nodes]   requirements_failed={requirements_failed}")
 PY
 }
 
