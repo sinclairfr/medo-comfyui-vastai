@@ -55,6 +55,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/sinclairfr/medo-comfyui-vast
 | `AI_TOOLKIT_PORT` | `8675` | Internal port for ai-toolkit web service. |
 | `WORKSPACE` | `/workspace` | Persistent workspace root. |
 | `MEDO_EDIT_PORTAL_YAML` | `false` | If `true`, force edits to `/etc/portal.yaml` (not recommended when using Vast `PORTAL_CONFIG`). |
+| `CUSTOM_NODES_CONFIG_FILE` | `/workspace/ComfyUI/custom_nodes_list.json` | JSON file listing ComfyUI custom node repos to clone at startup. |
 
 
 ## S3 Offloader environment variables (Vast template)
@@ -114,11 +115,33 @@ Expose only the ports you need from the container:
   - `/workspace/services`
 - Clones/updates `comfyui_S3_offloader` into `/workspace/comfyui_S3_offloader`.
 - Clones/updates `ai-toolkit` only when `RUN_AI_TOOLKIT=true`.
+- Installs ComfyUI custom nodes from [`custom_nodes_list.json`](custom_nodes_list.json) (or `CUSTOM_NODES_CONFIG_FILE`) into `/workspace/ComfyUI/custom_nodes` if present.
+- Installs each custom node [`requirements.txt`](on_start.sh:373) when available.
 - Initializes FileBrowser DB under `/workspace/services/filebrowser.db` (idempotent, only on first run).
   Default credentials: **admin / admin**.
 - Renders Supervisor program configs and starts/updates services with `supervisorctl`.
 - Prints internal service summary.
 - If `/run/http_ports` exists, appends Medo services so they can appear in the native portal links list.
+
+## Custom nodes config format
+
+Place the config file at [`custom_nodes_list.json`](custom_nodes_list.json) (default runtime path: `/workspace/ComfyUI/custom_nodes_list.json`):
+
+```json
+[
+  {
+    "url": "https://github.com/ltdrdata/ComfyUI-Manager",
+    "branch": "main"
+  },
+  {
+    "url": "https://github.com/Acly/comfyui-tooling-nodes"
+  }
+]
+```
+
+Optional fields per entry:
+- `branch`: branch/tag to clone.
+- `name`: override target folder name under `custom_nodes`.
 
 ## Troubleshooting
 

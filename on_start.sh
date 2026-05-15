@@ -28,6 +28,7 @@ AI_TOOLKIT_REPO="https://github.com/ostris/ai-toolkit"
 PYTHON_BIN="${PYTHON_BIN:-$(command -v python3)}"
 
 COMFYUI_DIR="${WORKSPACE}/ComfyUI"
+CUSTOM_NODES_CONFIG_FILE="${CUSTOM_NODES_CONFIG_FILE:-${COMFYUI_DIR}/custom_nodes_list.json}"
 
 mkdir -p "${WORKSPACE}" "${LOG_DIR}" "${SERVICES_DIR}" "${SERVICES_DIR}/filebrowser"
 
@@ -276,6 +277,112 @@ ensure_filebrowser_binary() {
   return 0
 }
 
+install_custom_nodes_from_config() {
+  local config_file="${CUSTOM_NODES_CONFIG_FILE}"
+  local custom_nodes_dir="${COMFYUI_DIR}/custom_nodes"
+
+  if [[ ! -d "${COMFYUI_DIR}" ]]; then
+    log "ComfyUI directory not found at ${COMFYUI_DIR}; skipping custom nodes bootstrap"
+    return 0
+  fi
+
+  if [[ ! -f "${config_file}" ]]; then
+    log "No custom nodes config found at ${config_file}; skipping"
+    return 0
+  fi
+
+  mkdir -p "${custom_nodes_dir}"
+
+  log "Installing custom nodes from ${config_file}"
+  export CUSTOM_NODES_CONFIG_FILE="${config_file}"
+  export CUSTOM_NODES_DIR="${custom_nodes_dir}"
+  export LOG_DIR
+  export PYTHON_BIN
+
+  "${PYTHON_BIN}" - <<'PY' >>"${LOG_DIR}/on_start.log" 2>&1
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+cfg_path = Path(os.environ["CUSTOM_NODES_CONFIG_FILE"])
+custom_nodes_dir = Path(os.environ["CUSTOM_NODES_DIR"])
+python_bin = os.environ.get("PYTHON_BIN", "python3")
+
+def _safe_name_from_url(url: str) -> str:
+    base = url.rstrip("/").split("/")[-1]
+    if base.endswith(".git"):
+        base = base[:-4]
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", base).strip("-") or "custom-node"
+
+def _run(cmd):
+    print(f"[custom-nodes] $ {' '.join(cmd)}")
+    subprocess.run(cmd, check=True)
+
+try:
+    payload = json.loads(cfg_path.read_text())
+except Exception as exc:
+    print(f"[custom-nodes] ERROR: invalid JSON in {cfg_path}: {exc}")
+    sys.exit(1)
+
+if not isinstance(payload, list):
+    print(f"[custom-nodes] ERROR: expected a JSON array in {cfg_path}")
+    sys.exit(1)
+
+for i, entry in enumerate(payload, start=1):
+    if not isinstance(entry, dict):
+        print(f"[custom-nodes] WARN: entry #{i} is not an object, skipped")
+        continue
+
+    url = (entry.get("url") or "").strip()
+    if not url:
+        print(f"[custom-nodes] WARN: entry #{i} missing 'url', skipped")
+        continue
+
+    branch = (entry.get("branch") or "").strip() or None
+    target_name = (entry.get("name") or "").strip() or _safe_name_from_url(url)
+    target_dir = custom_nodes_dir / target_name
+
+    if target_dir.exists():
+        print(f"[custom-nodes] Exists, skip clone: {target_dir}")
+    else:
+        cmd = ["git", "clone", "--depth", "1"]
+        if branch:
+            cmd += ["--branch", branch]
+        cmd += [url, str(target_dir)]
+        try:
+            _run(cmd)
+            print(f"[custom-nodes] Cloned: {url} -> {target_dir}")
+        except subprocess.CalledProcessError as exc:
+            print(f"[custom-nodes] ERROR: clone failed for {url}: {exc}")
+            continue
+
+    req = target_dir / "requirements.txt"
+    if req.exists():
+        try:
+            _run([python_bin, "-m", "pip", "install", "-r", str(req)])
+            print(f"[custom-nodes] Installed requirements for {target_name}")
+        except subprocess.CalledProcessError:
+            print(f"[custom-nodes] WARN: pip install failed for {req}; retrying with override flags")
+            try:
+                _run([
+                    python_bin,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--break-system-packages",
+                    "--ignore-installed",
+                    "-r",
+                    str(req),
+                ])
+                print(f"[custom-nodes] Installed requirements for {target_name} (fallback)")
+            except subprocess.CalledProcessError as exc:
+                print(f"[custom-nodes] WARN: failed installing requirements for {req}: {exc}")
+PY
+}
+
 # ---------------------------------------------------------------------------
 # Main sequence
 # ---------------------------------------------------------------------------
@@ -285,6 +392,7 @@ git_sync_repo "${S3_REPO}" "${S3_DIR}" || log "WARN: unable to sync comfyui_S3_o
 
 ensure_s3_offloader_settings
 ensure_s3_offloader_deps
+install_custom_nodes_from_config
 
 if [[ "${MEDO_EDIT_PORTAL_YAML,,}" == "true" ]]; then
   log "MEDO_EDIT_PORTAL_YAML=true; applying portal.yaml edits"
