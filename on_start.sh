@@ -676,9 +676,9 @@ fi
 if command -v filebrowser >/dev/null 2>&1; then
   local _fb_pass_file="${WORKSPACE}/.filebrowser_password"
   local _fb_pass
-  if [[ -n "${FILEBROWSER_PASS:-}" ]]; then
-    _fb_pass="${FILEBROWSER_PASS}"
-    log "FileBrowser password: from FILEBROWSER_PASS env var"
+  if [[ -n "${FILEBROWSER_PASSWORD:-}" ]]; then
+    _fb_pass="${FILEBROWSER_PASSWORD}"
+    log "FileBrowser password: from FILEBROWSER_PASSWORD env var"
   elif [[ -f "${_fb_pass_file}" ]]; then
     _fb_pass="$(cat "${_fb_pass_file}")"
     log "FileBrowser password: loaded from ${_fb_pass_file}"
@@ -694,7 +694,7 @@ if command -v filebrowser >/dev/null 2>&1; then
     run_logged filebrowser config init -d "${SERVICES_DIR}/filebrowser.db" || true
     run_logged filebrowser users add admin "${_fb_pass}" --perm.admin -d "${SERVICES_DIR}/filebrowser.db" || true
     run_logged filebrowser users update admin --password "${_fb_pass}" -d "${SERVICES_DIR}/filebrowser.db" || true
-    log_ok "FileBrowser credentials: admin / $(cat "${_fb_pass_file}" 2>/dev/null || echo '(see FILEBROWSER_PASS env var)')"
+    log_ok "FileBrowser credentials: admin / $(cat "${_fb_pass_file}" 2>/dev/null || echo '(see FILEBROWSER_PASSWORD env var)')"
   else
     log "FileBrowser DB already exists at ${SERVICES_DIR}/filebrowser.db"
   fi
