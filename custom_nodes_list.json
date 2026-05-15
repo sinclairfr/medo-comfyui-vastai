@@ -5,5 +5,8 @@
     },
     {
         "url": "https://github.com/Acly/comfyui-tooling-nodes"
+    },
+    {
+        "url": "https://github.com/sinclairfr/comfyui-download-to-pod"
     }
 ]

@@ -217,6 +217,41 @@ restart_comfyui_after_nodes() {
   fi
 }
 
+fetch_custom_nodes_config() {
+  local dst="${ROOT_CUSTOM_NODES_CONFIG_FILE}"
+
+  if [[ -f "${CUSTOM_NODES_CONFIG_FILE}" ]] || [[ -f "${dst}" ]]; then
+    log "Custom nodes config already present locally"
+    return 0
+  fi
+
+  if [[ -f "${BAKED_CUSTOM_NODES_CONFIG_FILE}" ]]; then
+    log "Using baked-in custom nodes config: ${BAKED_CUSTOM_NODES_CONFIG_FILE}"
+    cp "${BAKED_CUSTOM_NODES_CONFIG_FILE}" "${dst}"
+    return 0
+  fi
+
+  if [[ -n "${CUSTOM_NODES_LIST_URL}" ]]; then
+    log "Downloading custom nodes config from ${CUSTOM_NODES_LIST_URL}"
+    if curl -fsSL "${CUSTOM_NODES_LIST_URL}" -o "${dst}" >>"${LOG_DIR}/on_start.log" 2>&1; then
+      log "Downloaded custom nodes config to ${dst}"
+    else
+      log "WARN: failed to download custom nodes config from ${CUSTOM_NODES_LIST_URL}"
+    fi
+  fi
+}
+
+restart_comfyui_after_nodes() {
+  for name in comfyui comfy comfy-ui; do
+    if supervisorctl status "${name}" >/dev/null 2>&1; then
+      log "Restarting ${name} via supervisord after custom node installation"
+      supervisorctl restart "${name}" >>"${LOG_DIR}/on_start.log" 2>&1 || true
+      return 0
+    fi
+  done
+  log "ComfyUI not found in supervisord; no restart needed"
+}
+
 detect_supervisor_templates_dir() {
   if [[ -d "${SUPERVISOR_TPL_DIR}" ]]; then
     return 0
@@ -643,12 +678,9 @@ git_sync_repo "${S3_REPO}" "${S3_DIR}" || log_warn "Unable to sync comfyui_S3_of
 log_section "Step 2/6 — S3 offloader settings & deps"
 ensure_s3_offloader_settings
 ensure_s3_offloader_deps
-
-log_section "Step 3/6 — Custom nodes config fetch"
 fetch_custom_nodes_config
-
-log_section "Step 4/6 — Custom nodes clone & pip install"
 install_custom_nodes_from_config
+restart_comfyui_after_nodes
 
 log_section "Step 5/6 — Restart ComfyUI"
 restart_comfyui_after_nodes
